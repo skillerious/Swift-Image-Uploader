@@ -19,7 +19,9 @@
 <body>
   <!-- Titlebar -->
   <div id="titlebar" class="titlebar drag">
+    <!-- Menubar (left) -->
     <nav class="menubar no-drag" role="menubar" aria-label="Application Menu">
+      <!-- File -->
       <div class="menu" data-menu="file">
         <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">File</button>
         <div class="menu-panel" role="menu">
@@ -30,13 +32,52 @@
           <button class="menu-item" id="m-file-exit" type="button">Exit</button>
         </div>
       </div>
+
+      <!-- Edit -->
+      <div class="menu" data-menu="edit">
+        <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">Edit</button>
+        <div class="menu-panel" role="menu">
+          <button class="menu-item" id="m-edit-undo" type="button">Undo</button>
+          <button class="menu-item" id="m-edit-redo" type="button">Redo</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" id="m-edit-cut" type="button">Cut</button>
+          <button class="menu-item" id="m-edit-copy" type="button">Copy</button>
+          <button class="menu-item" id="m-edit-paste" type="button">Paste</button>
+          <button class="menu-item" id="m-edit-selectall" type="button">Select All</button>
+        </div>
+      </div>
+
+      <!-- View -->
       <div class="menu" data-menu="view">
         <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">View</button>
         <div class="menu-panel" role="menu">
           <button class="menu-item" id="m-view-reload" type="button">Reload</button>
           <button class="menu-item" id="m-view-devtools" type="button">Toggle Developer Tools</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" id="m-view-fullscreen" type="button">Toggle Full Screen</button>
         </div>
       </div>
+
+      <!-- Go -->
+      <div class="menu" data-menu="go">
+        <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">Go</button>
+        <div class="menu-panel" role="menu">
+          <button class="menu-item" id="m-go-open-repo" type="button">Open Repo on GitHub</button>
+          <button class="menu-item" id="m-go-open-owner" type="button">Open Owner Profile</button>
+        </div>
+      </div>
+
+      <!-- Tools -->
+      <div class="menu" data-menu="tools">
+        <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">Tools</button>
+        <div class="menu-panel" role="menu">
+          <button class="menu-item" id="m-tools-new-folder" type="button">New Folder…</button>
+          <button class="menu-item" id="m-tools-uploader" type="button">Open Uploader</button>
+          <button class="menu-item" id="m-tools-refresh" type="button">Rebuild Tree</button>
+        </div>
+      </div>
+
+      <!-- Help -->
       <div class="menu" data-menu="help">
         <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">Help</button>
         <div class="menu-panel" role="menu">
@@ -45,12 +86,20 @@
       </div>
     </nav>
 
+    <!-- Centered title -->
     <div class="tb-center drag">
       <span class="codicon codicon-cloud-upload app-icon"></span>
       <span class="app-title">Swift Image Uploader</span>
     </div>
 
+    <!-- Right: toolbar icons + window controls -->
     <div class="tb-right no-drag">
+      <button id="tb-settings" class="win-btn tool" title="Settings" type="button">
+        <span class="codicon codicon-gear"></span>
+      </button>
+      <button id="tb-about" class="win-btn tool" title="About" type="button">
+        <span class="codicon codicon-info"></span>
+      </button>
       <button id="win-min" class="win-btn" title="Minimize" type="button"><span class="codicon codicon-chrome-minimize"></span></button>
       <button id="win-max" class="win-btn" title="Maximize" type="button"><span id="win-max-ic" class="codicon codicon-chrome-maximize"></span></button>
       <button id="win-close" class="win-btn close" title="Close" type="button"><span class="codicon codicon-chrome-close"></span></button>
@@ -73,33 +122,31 @@
       <nav id="folder-tree" class="tree"></nav>
     </aside>
 
-<!-- Center -->
-<section class="center">
-  <div class="files-toolbar">
-    <div class="left">
-      <h2 class="section-title"><span class="codicon codicon-root-folder"></span> Files in folder</h2>
-    </div>
-    <div class="right">
-      <div class="segmented" id="view-toggle" role="tablist" aria-label="View mode">
-        <button class="seg active" data-mode="grid" type="button" role="tab" aria-selected="true" title="Grid view">
-          <!-- always-visible CSS grid icon -->
-          <span class="grid-ico"><i></i><i></i><i></i><i></i></span>
-        </button>
-        <button class="seg" data-mode="list" type="button" role="tab" aria-selected="false" title="List view">
-          <span class="codicon codicon-list-flat"></span>
-        </button>
+    <!-- Center -->
+    <section class="center">
+      <div class="files-toolbar">
+        <div class="left">
+          <h2 class="section-title"><span class="codicon codicon-root-folder"></span> Files in folder</h2>
+        </div>
+        <div class="right">
+          <div class="segmented" id="view-toggle" role="tablist" aria-label="View mode">
+            <button class="seg active" data-mode="grid" type="button" role="tab" aria-selected="true" title="Grid view">
+              <span class="grid-ico"><i></i><i></i><i></i><i></i></span>
+            </button>
+            <button class="seg" data-mode="list" type="button" role="tab" aria-selected="false" title="List view">
+              <span class="codicon codicon-list-flat"></span>
+            </button>
+          </div>
+
+          <select id="target-folder" title="Active folder"></select>
+          <button id="btn-open-uploader" class="btn primary" type="button">
+            <span class="codicon codicon-cloud-upload"></span> Upload…
+          </button>
+        </div>
       </div>
 
-      <select id="target-folder" title="Active folder"></select>
-      <button id="btn-open-uploader" class="btn primary" type="button">
-        <span class="codicon codicon-cloud-upload"></span> Upload…
-      </button>
-    </div>
-  </div>
-
-  <div class="files-grid" id="files-grid"></div>
-</section>
-
+      <div class="files-grid" id="files-grid"></div>
+    </section>
 
     <!-- Right -->
     <aside class="preview">
@@ -140,26 +187,60 @@
     </aside>
   </main>
 
-  <!-- Settings (tabs handled by settings.js) -->
-  <dialog id="dlg-settings" class="modal">
-    <form method="dialog" class="modal-card">
-      <header class="modal-head">
-        <h3><span class="codicon codicon-gear"></span> Settings</h3>
-      </header>
-      <section class="modal-body">
-        <div class="tabs">
-          <div class="tab-bar" role="tablist">
-            <button class="tab active" data-tab="github" role="tab" type="button">GitHub</button>
-            <button class="tab" data-tab="commit" role="tab" type="button">Commit & Naming</button>
-            <button class="tab" data-tab="app" role="tab" type="button">App & UI</button>
-          </div>
-          <div class="tab-panels">
-            <div class="tab-panel active" data-panel="github">
+<!-- Settings (enhanced, fixed size, VS Code titlebar) -->
+<dialog id="dlg-settings" class="modal">
+  <form method="dialog" class="modal-card settings-card">
+    <!-- Titlebar -->
+    <div class="dialog-titlebar modal-titlebar" id="settings-titlebar">
+      <div class="dtb-left">
+        <span class="codicon codicon-settings-gear app-icon"></span>
+        <span class="app-title">Settings</span>
+      </div>
+      <div class="dtb-center">
+        <span class="about-window-title">Preferences</span>
+      </div>
+      <div class="dtb-right">
+        <button id="settings-close" type="button" class="tb-btn tb-close" title="Close Settings" aria-label="Close Settings">
+          <span class="codicon codicon-close"></span>
+        </button>
+      </div>
+    </div>
+
+    <section class="modal-body settings-body">
+      <div class="tabs tabs-top">
+        <!-- Tabs -->
+        <div class="tab-bar bar-pill" role="tablist">
+          <button class="tab active" data-tab="github" role="tab" type="button">
+            <span class="codicon codicon-github-inverted"></span> GitHub
+          </button>
+          <button class="tab" data-tab="commit" role="tab" type="button">
+            <span class="codicon codicon-source-control"></span> Commit & Naming
+          </button>
+          <button class="tab" data-tab="upload" role="tab" type="button">
+            <span class="codicon codicon-cloud-upload"></span> Uploader
+          </button>
+          <button class="tab" data-tab="app" role="tab" type="button">
+            <span class="codicon codicon-paintcan"></span> App & UI
+          </button>
+          <button class="tab" data-tab="advanced" role="tab" type="button">
+            <span class="codicon codicon-tools"></span> Advanced
+          </button>
+        </div>
+
+        <!-- Panels -->
+        <div class="tab-panels">
+
+          <!-- GitHub -->
+          <div class="tab-panel active" data-panel="github">
+            <div class="section">
+              <div class="section-head">
+                <h4><span class="codicon codicon-repo"></span> Repository</h4>
+                <p>Connect to your GitHub repo (token should have <code>Contents: Read/Write</code>).</p>
+              </div>
               <div class="grid two">
                 <div class="field">
                   <label>GitHub Token</label>
                   <input id="set-token" type="password" placeholder="ghp_..." autocomplete="off">
-                  <small>Use fine-grained token with <code>Contents: Read/Write</code>.</small>
                 </div>
                 <div class="field">
                   <label>Root Folder</label>
@@ -175,136 +256,217 @@
                 <div class="field"><label>Default Folder in Selector</label><input id="set-default-select" type="text" placeholder="images"><small>Optional: preselect on start.</small></div>
               </div>
             </div>
-            <div class="tab-panel" data-panel="commit">
+          </div>
+
+          <!-- Commit & Naming -->
+          <div class="tab-panel" data-panel="commit">
+            <div class="section">
+              <div class="section-head">
+                <h4><span class="codicon codicon-source-control"></span> Commit Identity</h4>
+                <p>These values are used as the committer for uploads.</p>
+              </div>
               <div class="grid two">
                 <div class="field"><label>Committer Name</label><input id="set-name" type="text" placeholder="Swift Image Host"></div>
                 <div class="field"><label>Committer Email</label><input id="set-email" type="email" placeholder="noreply@example.com"></div>
               </div>
+            </div>
+
+            <div class="section">
+              <div class="section-head">
+                <h4><span class="codicon codicon-graph-line"></span> Naming</h4>
+                <p>Auto-rename when a filename conflicts or a rule is specified.</p>
+              </div>
               <div class="grid">
-                <div class="field"><label>Auto-rename rule</label><input id="set-rename" type="text" placeholder="{base}-{n}{ext}">
+                <div class="field">
+                  <label>Auto-rename rule</label>
+                  <input id="set-rename" type="text" placeholder="{base}-{n}{ext}">
                   <small>Vars: <code>{base}</code>, <code>{ext}</code>, <code>{n}</code>, <code>{yyyy}</code>, <code>{mm}</code>, <code>{dd}</code>.</small>
                 </div>
               </div>
             </div>
-            <div class="tab-panel" data-panel="app">
+          </div>
+
+          <!-- Uploader -->
+          <div class="tab-panel" data-panel="upload">
+            <div class="section">
+              <div class="section-head">
+                <h4><span class="codicon codicon-cloud-upload"></span> Upload Preferences</h4>
+                <p>Tweak concurrency and post-upload actions.</p>
+              </div>
               <div class="grid two">
-                <div class="field"><label>Theme</label>
-                  <select id="set-theme"><option value="dark">Dark (default)</option><option value="light">Light</option><option value="system">System</option></select>
+                <div class="field">
+                  <label>Concurrent threads</label>
+                  <select id="set-threads">
+                    <option value="1">1</option>
+                    <option value="2" selected>2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                  </select>
                 </div>
-                <div class="field"><label>Open uploader</label>
-                  <select id="set-upload-open"><option value="window">In new window</option><option value="modal">Modal</option></select>
+                <div class="field">
+                  <label>Open uploader</label>
+                  <select id="set-upload-open">
+                    <option value="window" selected>In new window</option>
+                    <option value="modal">Modal</option>
+                  </select>
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="field">
+                  <label><input type="checkbox" id="set-autocopy"> Auto-copy raw link after upload</label>
+                </div>
+                <div class="field">
+                  <label><input type="checkbox" id="set-open-after"> Open image in browser after upload</label>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
-      <footer class="modal-foot">
-        <button id="btn-test" type="button" class="btn"><span class="codicon codicon-debug-start"></span> Test</button>
-        <div class="spacer"></div>
-        <button id="btn-cancel" value="cancel" class="btn ghost" type="button">Cancel</button>
-        <button id="btn-save" value="ok" class="btn primary" type="button">Save</button>
-      </footer>
-    </form>
-  </dialog>
 
-<!-- Enhanced About Modal -->
-<dialog id="dlg-about" class="modal">
-  <form method="dialog" class="modal-card">
-    <!-- VS Code–style titlebar (not draggable) -->
-    <div class="dialog-titlebar modal-titlebar">
-      <div class="dtb-left">
-        <span class="codicon codicon-cloud-upload app-icon"></span>
-        <span class="app-title">About</span>
-      </div>
-      <div class="dtb-center">
-        <span class="about-window-title">Swift Image Uploader</span>
-      </div>
-      <div class="dtb-right">
-        <button id="about-close" type="button" class="tb-btn tb-close" title="Close About" aria-label="Close About">
-          <span class="codicon codicon-close"></span>
-        </button>
-      </div>
-    </div>
-
-    <section class="modal-body">
-      <div class="about-header">
-        <span class="codicon codicon-cloud-upload"></span>
-        <div>
-          <h2 class="about-title">Swift Image Uploader</h2>
-          <div class="about-sub">
-            VS Code–styled GitHub image uploader • Version <span id="app-version"></span>
+          <!-- App & UI -->
+          <div class="tab-panel" data-panel="app">
+            <div class="section">
+              <div class="section-head">
+                <h4><span class="codicon codicon-paintcan"></span> Appearance</h4>
+                <p>Theme and interface preferences.</p>
+              </div>
+              <div class="grid two">
+                <div class="field">
+                  <label>Theme</label>
+                  <select id="set-theme">
+                    <option value="dark" selected>Dark (default)</option>
+                    <option value="light">Light</option>
+                    <option value="system">System</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label><input type="checkbox" id="set-confirm-exit"> Confirm before exit with pending uploads</label>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <!-- Summary chips -->
-      <div class="about-chips">
-        <span class="chip"><span class="codicon codicon-github-inverted"></span> GitHub</span>
-        <span class="chip"><span class="codicon codicon-paintcan"></span> VS Code theme</span>
-        <span class="chip"><span class="codicon codicon-cloud-upload"></span> Image hosting</span>
-      </div>
+          <!-- Advanced -->
+          <div class="tab-panel" data-panel="advanced">
+            <div class="section">
+              <div class="section-head">
+                <h4><span class="codicon codicon-tools"></span> Advanced</h4>
+                <p>Power options. Change with care.</p>
+              </div>
+              <div class="grid two">
+                <div class="field">
+                  <label>API Base (override)</label>
+                  <input id="set-api-base" type="text" placeholder="https://api.github.com">
+                  <small>Leave blank to use default.</small>
+                </div>
+                <div class="field">
+                  <label><input type="checkbox" id="set-safe-mode"> Safe mode (reduced features)</label>
+                </div>
+              </div>
+              <div class="grid">
+                <div class="field">
+                  <button class="btn danger" id="set-reset" type="button">
+                    <span class="codicon codicon-trash"></span> Reset all settings
+                  </button>
+                  <small>This clears local preferences (you’ll need to re-enter token and repo info).</small>
+                </div>
+              </div>
+            </div>
+          </div>
 
-      <!-- Details -->
-      <div class="about-grid">
-        <div>
-          <label>Owner</label>
-          <span id="about-owner">—</span>
-        </div>
-        <div>
-          <label>Repo</label>
-          <span id="about-repo">—</span>
-        </div>
-        <div>
-          <label>Branch</label>
-          <span id="about-branch">—</span>
-        </div>
-        <div>
-          <label>Root folder</label>
-          <span id="about-root">—</span>
-        </div>
-      </div>
-
-      <!-- Developer -->
-      <div class="about-dev">
-        <strong>Developer</strong>
-        <div>
-          <a href="https://github.com/skillerious" target="_blank" rel="noreferrer">
-            Robin Doak <code>@skillerious</code>
-          </a>
-        </div>
-        <small>Open source • Desktop Python enthusiast</small>
-      </div>
-
-      <!-- Quick actions -->
-      <div class="about-actions">
-        <a class="btn ghost" href="https://github.com/skillerious" target="_blank" rel="noreferrer">
-          <span class="codicon codicon-person"></span> GitHub Profile
-        </a>
-        <button type="button" class="btn" id="about-open-settings">
-          <span class="codicon codicon-gear"></span> Open Settings
-        </button>
-      </div>
-
-      <!-- Shortcuts -->
-      <div class="about-shortcuts">
-        <strong>Shortcuts</strong>
-        <ul>
-          <li><code>Ctrl+U</code> — Open Uploader</li>
-          <li><code>Ctrl+,</code> — Settings</li>
-          <li><code>Ctrl+R</code> — Reload</li>
-          <li><code>Ctrl+Shift+I</code> — Toggle Developer Tools</li>
-        </ul>
-      </div>
+        </div> <!-- /tab-panels -->
+      </div>   <!-- /tabs -->
     </section>
 
     <footer class="modal-foot">
+      <button id="btn-test" type="button" class="btn">
+        <span class="codicon codicon-debug-start"></span> Test
+      </button>
       <div class="spacer"></div>
-      <button class="btn primary" type="submit">Close</button>
+      <button id="btn-cancel" class="btn ghost" type="button">Cancel</button>
+      <button id="btn-save" class="btn primary" type="button">Save</button>
     </footer>
   </form>
 </dialog>
 
+
+  <!-- Enhanced About Modal (draggable) -->
+  <dialog id="dlg-about" class="modal">
+    <form method="dialog" class="modal-card">
+      <div class="dialog-titlebar modal-titlebar" id="about-titlebar">
+        <div class="dtb-left">
+          <span class="codicon codicon-cloud-upload app-icon"></span>
+          <span class="app-title">About</span>
+        </div>
+        <div class="dtb-center">
+          <span class="about-window-title">Swift Image Uploader</span>
+        </div>
+        <div class="dtb-right">
+          <button id="about-close" type="button" class="tb-btn tb-close" title="Close About" aria-label="Close About">
+            <span class="codicon codicon-close"></span>
+          </button>
+        </div>
+      </div>
+
+      <section class="modal-body">
+        <div class="about-header">
+          <span class="codicon codicon-cloud-upload"></span>
+          <div>
+            <h2 class="about-title">Swift Image Uploader</h2>
+            <div class="about-sub">
+              GitHub image uploader • Version <span id="app-version"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="about-chips">
+          <span class="chip"><span class="codicon codicon-github-inverted"></span> GitHub</span>
+          <span class="chip"><span class="codicon codicon-paintcan"></span> Dark Theme</span>
+          <span class="chip"><span class="codicon codicon-cloud-upload"></span> Image hosting</span>
+        </div>
+
+        <div class="about-grid">
+          <div><label>Owner</label><span id="about-owner">—</span></div>
+          <div><label>Repo</label><span id="about-repo">—</span></div>
+          <div><label>Branch</label><span id="about-branch">—</span></div>
+          <div><label>Root folder</label><span id="about-root">—</span></div>
+        </div>
+
+        <div class="about-dev">
+          <strong>Developer</strong>
+          <div>
+            <a href="https://github.com/skillerious" target="_blank" rel="noreferrer">
+              Robin Doak <code>@skillerious</code>
+            </a>
+          </div>
+          <small>Open source • Desktop Python enthusiast</small>
+        </div>
+
+        <div class="about-actions">
+          <a class="btn ghost" href="https://github.com/skillerious" target="_blank" rel="noreferrer">
+            <span class="codicon codicon-person"></span> GitHub Profile
+          </a>
+          <button type="button" class="btn" id="about-open-settings">
+            <span class="codicon codicon-gear"></span> Open Settings
+          </button>
+        </div>
+
+        <div class="about-shortcuts">
+          <strong>Shortcuts</strong>
+          <ul>
+            <li><code>Ctrl+U</code> — Open Uploader</li>
+            <li><code>Ctrl+,</code> — Settings</li>
+            <li><code>Ctrl+R</code> — Reload</li>
+            <li><code>Ctrl+Shift+I</code> — Toggle Developer Tools</li>
+          </ul>
+        </div>
+      </section>
+
+      <footer class="modal-foot">
+        <div class="spacer"></div>
+        <button class="btn primary" type="submit">Close</button>
+      </footer>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

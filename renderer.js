@@ -5,24 +5,67 @@ const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
 // ---------------- UI Refs ----------------
 const ui = {
   titlebar: $('#titlebar'),
+  // toolbar buttons (left of window controls)
+  tbSettings: $('#tb-settings'),
+  tbAbout: $('#tb-about'),
+
   // window controls
-  winMin: $('#win-min'), winMax: $('#win-max'), winMaxIc: $('#win-max-ic'), winClose: $('#win-close'),
-  // menubar
-  mFileUpload: $('#m-file-upload'), mFileSettings: $('#m-file-settings'),
-  mFileRefresh: $('#m-file-refresh'), mFileExit: $('#m-file-exit'),
-  mViewReload: $('#m-view-reload'), mViewDevtools: $('#m-view-devtools'),
+  winMin: $('#win-min'),
+  winMax: $('#win-max'),
+  winMaxIc: $('#win-max-ic'),
+  winClose: $('#win-close'),
+
+  // menubar items
+  mFileUpload:   $('#m-file-upload'),
+  mFileSettings: $('#m-file-settings'),
+  mFileRefresh:  $('#m-file-refresh'),
+  mFileExit:     $('#m-file-exit'),
+
+  mEditUndo:      $('#m-edit-undo'),
+  mEditRedo:      $('#m-edit-redo'),
+  mEditCut:       $('#m-edit-cut'),
+  mEditCopy:      $('#m-edit-copy'),
+  mEditPaste:     $('#m-edit-paste'),
+  mEditSelectAll: $('#m-edit-selectall'),
+
+  mViewReload:      $('#m-view-reload'),
+  mViewDevtools:    $('#m-view-devtools'),
+  mViewFullscreen:  $('#m-view-fullscreen'),
+
+  mGoOpenRepo:  $('#m-go-open-repo'),
+  mGoOpenOwner: $('#m-go-open-owner'),
+
+  mToolsNewFolder: $('#m-tools-new-folder'),
+  mToolsUploader:  $('#m-tools-uploader'),
+  mToolsRefresh:   $('#m-tools-refresh'),
+
   mHelpAbout: $('#m-help-about'),
+
   // sidebar + center
-  tree: $('#folder-tree'), search: $('#search-folders'),
-  newFolder: $('#btn-new-folder'), refresh: $('#btn-refresh'),
-  targetSelect: $('#target-folder'), filesGrid: $('#files-grid'),
-  viewToggle: $('#view-toggle'), openUploader: $('#btn-open-uploader'),
+  tree: $('#folder-tree'),
+  search: $('#search-folders'),
+  newFolder: $('#btn-new-folder'),
+  refresh: $('#btn-refresh'),
+
+  targetSelect: $('#target-folder'),
+  filesGrid: $('#files-grid'),
+  viewToggle: $('#view-toggle'),
+  openUploader: $('#btn-open-uploader'),
+
   // preview
-  previewImg: $('#preview-img'), previewEmpty: $('#preview-empty'),
-  linkRaw: $('#link-raw'), linkMD: $('#link-md'), linkHTML: $('#link-html'), linkBlob: $('#link-blob'),
+  previewImg: $('#preview-img'),
+  previewEmpty: $('#preview-empty'),
+  linkRaw:  $('#link-raw'),
+  linkMD:   $('#link-md'),
+  linkHTML: $('#link-html'),
+  linkBlob: $('#link-blob'),
   btnOpenRaw: $('#btn-open-raw'),
+
   // dialogs
-  dlgAbout: $('#dlg-about'), toast: $('#toast')
+  dlgAbout: $('#dlg-about'),
+  aboutTitlebar: $('#about-titlebar'),
+
+  toast: $('#toast'),
 };
 
 // ---------------- Local state ----------------
@@ -33,7 +76,7 @@ let state = {
 };
 
 // ---------------- Toast ----------------
-function toast(msg, ok=true){
+function toast(msg, ok = true){
   ui.toast.textContent = msg;
   ui.toast.style.borderColor = ok ? 'var(--border)' : 'var(--danger)';
   ui.toast.style.display = 'block';
@@ -45,16 +88,23 @@ function toast(msg, ok=true){
 function copyText(textOrSelector){
   let text = textOrSelector;
   if (typeof textOrSelector === 'string' && textOrSelector.startsWith('#')) {
-    const el = $(textOrSelector); if (!el) return;
+    const el = $(textOrSelector);
+    if (!el) return;
     text = el.value || '';
   }
-  try { window.api?.copyText?.(text); }
-  catch {
-    const ta=document.createElement('textarea');
-    ta.value=text; document.body.appendChild(ta); ta.select();
-    document.execCommand('copy'); ta.remove();
+  try {
+    window.api?.copyText?.(text);
+    toast('Copied to clipboard.');
+  } catch {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    toast('Copied to clipboard.');
   }
-  toast('Copied to clipboard.');
 }
 
 // ---------------- Window controls ----------------
@@ -65,17 +115,22 @@ function setMaxIcon(isMax){
 }
 function wireWindowControls(){
   if (!window.api) return;
+
   ui.winMin?.addEventListener('click', ()=> window.api.winMinimize());
   ui.winMax?.addEventListener('click', ()=> window.api.winMaximize());
   ui.winClose?.addEventListener('click', ()=> window.api.winClose());
+
+  // initial + live maximize state
   window.api.winIsMaximized().then(setMaxIcon).catch(()=>{});
   window.api.onWinMaxState?.(v => setMaxIcon(!!v));
+
+  // double-click titlebar => maximize / restore
   ui.titlebar?.addEventListener('dblclick', (e)=>{
     if (!e.target.closest('.no-drag')) window.api?.winMaximize?.();
   });
 }
 
-// ---------------- Menubar ----------------
+// ---------------- Menubar (open/close handling) ----------------
 function closeMenus(){
   $$('.menubar .menu').forEach(m=>{
     m.classList.remove('open');
@@ -91,6 +146,7 @@ function toggleMenu(el, open){
   }
 }
 function wireMenubar(){
+  // open/close behavior
   $$('.menubar .menu').forEach(m => {
     const btn = m.querySelector('.menu-btn');
     if (!btn) return;
@@ -100,7 +156,6 @@ function wireMenubar(){
       toggleMenu(m);
     });
   });
-
   document.addEventListener('click', e=>{
     if(!e.target.closest('.menubar')) closeMenus();
   });
@@ -108,23 +163,52 @@ function wireMenubar(){
     if(e.key==='Escape') closeMenus();
   });
 
+  // FILE
   ui.mFileUpload?.addEventListener('click', ()=>{ closeMenus(); openUploader(); });
   ui.mFileSettings?.addEventListener('click', ()=>{ closeMenus(); window.Settings.open(); });
   ui.mFileRefresh?.addEventListener('click', ()=>{ closeMenus(); refreshDirs(state.activeDir); });
   ui.mFileExit?.addEventListener('click', ()=>{ closeMenus(); window.api?.appQuit?.(); });
 
+  // EDIT
+  ui.mEditUndo?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('undo'); });
+  ui.mEditRedo?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('redo'); });
+  ui.mEditCut?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('cut'); });
+  ui.mEditCopy?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('copy'); });
+  ui.mEditPaste?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('paste'); });
+  ui.mEditSelectAll?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('selectAll'); });
+
+  // VIEW
   ui.mViewReload?.addEventListener('click', ()=>{ closeMenus(); window.api?.appReload?.(); });
   ui.mViewDevtools?.addEventListener('click', ()=>{ closeMenus(); window.api?.toggleDevTools?.(); });
+  ui.mViewFullscreen?.addEventListener('click', async ()=>{ closeMenus(); window.api?.winMaximize?.(); });
 
+  // GO
+  ui.mGoOpenRepo?.addEventListener('click', ()=>{
+    closeMenus();
+    const owner = window.Settings.getOwner(), repo = window.Settings.getRepo();
+    if (owner && repo) window.open(`https://github.com/${owner}/${repo}`, '_blank');
+  });
+  ui.mGoOpenOwner?.addEventListener('click', ()=>{
+    closeMenus();
+    const owner = window.Settings.getOwner();
+    if (owner) window.open(`https://github.com/${owner}`, '_blank');
+  });
+
+  // TOOLS
+  ui.mToolsNewFolder?.addEventListener('click', async ()=>{ closeMenus(); await openNewFolderDialog(); });
+  ui.mToolsUploader?.addEventListener('click', ()=>{ closeMenus(); openUploader(); });
+  ui.mToolsRefresh?.addEventListener('click', ()=>{ closeMenus(); refreshDirs(state.activeDir); });
+
+  // HELP
   ui.mHelpAbout?.addEventListener('click', ()=>{ closeMenus(); openAbout(); });
 
-  // relays from native menu (preload exposes these)
+  // Native menu relays
   window.api?.onOpenSettings?.(()=> window.Settings.open());
   window.api?.onOpenAbout?.(()=> openAbout());
   window.api?.onOpenUpload?.(()=> openUploader());
 }
 
-// ---------------- Settings fallback (if settings.js isn’t loaded yet) ----------------
+// ---------------- Settings safety fallback ----------------
 if (!window.Settings) {
   window.Settings = (() => {
     let cache = { owner:'', repo:'', branch:'main', rootDir:'images', defaultSelect:'' };
@@ -141,7 +225,7 @@ if (!window.Settings) {
     return {
       init(){},
       async prefill(){ await prefill(); },
-      open(){ /* settings.js handles real dialog */ },
+      open(){ /* real dialog handled in settings.js */ },
       getOwner(){ return cache.owner; },
       getRepo(){ return cache.repo; },
       getBranch(){ return cache.branch; },
@@ -151,7 +235,75 @@ if (!window.Settings) {
   })();
 }
 
-// ---------------- About ----------------
+// ---------------- About (content + dragging) ----------------
+function enableDialogDragging(dlg, handleEl, storageKey){
+  if (!dlg || !handleEl) return;
+  if (dlg.dataset.dragInit === '1') return; // only wire once
+  dlg.dataset.dragInit = '1';
+
+  const card = dlg.querySelector('.modal-card');
+  if (!card) return;
+
+  function centerCard(){
+    card.style.position = 'fixed';
+    card.style.left = '50%';
+    card.style.top = '50%';
+    card.style.transform = 'translate(-50%, -50%)';
+  }
+
+  // restore last position if any
+  try {
+    const pos = JSON.parse(localStorage.getItem(storageKey) || 'null');
+    card.style.position = 'fixed';
+    if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+      card.style.left = pos.x + 'px';
+      card.style.top  = pos.y + 'px';
+      card.style.transform = 'none';
+    } else {
+      centerCard();
+    }
+  } catch { centerCard(); }
+
+  let dragging = false, offX = 0, offY = 0;
+
+  const onDown = (ev) => {
+    if (ev.button !== 0) return;
+    dragging = true;
+    const rect = card.getBoundingClientRect();
+    offX = ev.clientX - rect.left;
+    offY = ev.clientY - rect.top;
+    card.style.transform = 'none';
+    handleEl.classList.add('grabbing');
+    card.classList.add('dragging');
+    ev.preventDefault();
+  };
+
+  const onMove = (ev) => {
+    if (!dragging) return;
+    let x = ev.clientX - offX;
+    let y = ev.clientY - offY;
+    const pad = 8;
+    const cw = card.offsetWidth, ch = card.offsetHeight;
+    x = Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth  - cw - pad));
+    y = Math.min(Math.max(pad, y), Math.max(pad, window.innerHeight - ch - pad));
+    card.style.left = x + 'px';
+    card.style.top  = y + 'px';
+  };
+
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    handleEl.classList.remove('grabbing');
+    card.classList.remove('dragging');
+    const rect = card.getBoundingClientRect();
+    localStorage.setItem(storageKey, JSON.stringify({ x: rect.left, y: rect.top }));
+  };
+
+  handleEl.addEventListener('mousedown', onDown);
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
 async function openAbout(){
   if (!window.api) return;
   $('#app-version').textContent = await window.api.appVersion();
@@ -165,7 +317,84 @@ async function openAbout(){
 
   $('#about-branch').textContent = window.Settings.getBranch() || '—';
   $('#about-root').textContent   = window.Settings.getRoot()   || '—';
+
   ui.dlgAbout.showModal();
+  enableDialogDragging(ui.dlgAbout, $('#about-titlebar'), 'aboutPos');
+}
+
+// Close About via custom titlebar button + CTA
+document.addEventListener('click', (e) => {
+  const closeBtn = e.target.closest('#about-close');
+  if (closeBtn) {
+    e.preventDefault();
+    $('#dlg-about')?.close();
+  }
+});
+$('#about-open-settings')?.addEventListener('click', () => {
+  $('#dlg-about')?.close();
+  window.Settings?.open?.();
+});
+
+// ---------------- Empty State (beautiful, not using logo) ----------------
+function emptyIllustrationSVG(){
+  // Friendly “image grid + cloud” line illustration in muted tones
+  return `
+<svg viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <linearGradient id="g1" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0"  stop-color="#3794ff" stop-opacity=".9"/>
+      <stop offset="1"  stop-color="#0e639c" stop-opacity=".9"/>
+    </linearGradient>
+  </defs>
+  <!-- Grid frame -->
+  <rect x="12" y="14" width="120" height="92" rx="10" ry="10" fill="none" stroke="#3c3c3c" stroke-width="2"/>
+  <!-- Grid cells -->
+  <rect x="24" y="26" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
+  <rect x="72" y="26" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
+  <rect x="24" y="58" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
+  <rect x="72" y="58" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
+  <!-- Tiny mountains in a cell -->
+  <path d="M28 77 l10-10 10 12 5-5 9 11H28Z" fill="none" stroke="#666"/>
+  <!-- Cloud upload -->
+  <path d="M158 92c-10 0-18-7-18-16 0-8 6-14 14-16 2-11 12-20 25-20 13 0 23 9 24 21 9 2 15 9 15 17 0 10-9 18-20 18h-40z" fill="none" stroke="#3c3c3c" stroke-width="2"/>
+  <path d="M178 79v-22" stroke="url(#g1)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M166 66l12-12 12 12" fill="none" stroke="url(#g1)" stroke-width="3" stroke-linecap="round" />
+</svg>`;
+}
+
+function renderEmptyState(kind, dir){
+  // kind: 'not-configured' | 'empty'
+  ui.filesGrid.className = 'files-grid empty';
+  const title = kind === 'not-configured' ? 'Connect your GitHub repo' : 'Nothing here yet';
+  const sub = kind === 'not-configured'
+    ? 'Add your GitHub details in Settings to browse folders and upload images.'
+    : `No images found in ${dir ? `<code>${dir}</code>` : 'this folder'}.`;
+
+  ui.filesGrid.innerHTML = `
+    <div class="empty-wrap">
+      <div class="es-card">
+        <div class="es-illustration">${emptyIllustrationSVG()}</div>
+        <h3 class="es-title">${title}</h3>
+        <p class="es-sub">${sub}</p>
+
+        <div class="es-actions">
+          <button class="btn" data-es="open-settings"><span class="codicon codicon-gear"></span> Open Settings</button>
+          <button class="btn" data-es="new-folder"><span class="codicon codicon-new-folder"></span> New Folder</button>
+          <button class="btn primary" data-es="open-uploader"><span class="codicon codicon-cloud-upload"></span> Upload Images</button>
+        </div>
+
+        <div class="es-links">
+          Tip: You can also <a href="#" data-es="refresh">refresh</a> after creating folders or uploading via GitHub.
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Actions
+  ui.filesGrid.querySelector('[data-es="open-settings"]')?.addEventListener('click', () => window.Settings.open());
+  ui.filesGrid.querySelector('[data-es="new-folder"]')?.addEventListener('click', async () => { await openNewFolderDialog(); });
+  ui.filesGrid.querySelector('[data-es="open-uploader"]')?.addEventListener('click', () => openUploader());
+  ui.filesGrid.querySelector('[data-es="refresh"]')?.addEventListener('click', (e) => { e.preventDefault(); refreshDirs(state.activeDir); });
 }
 
 // ---------------- Tree building ----------------
@@ -211,7 +440,7 @@ async function refreshDirs(selectAfter = null){
     state.dirs = dirs;
     renderTree();
 
-    // refresh selector
+    // refresh folder selector
     ui.targetSelect.innerHTML = '';
     for (const d of dirs){
       const opt = document.createElement('option'); opt.value=d; opt.textContent=d;
@@ -223,8 +452,16 @@ async function refreshDirs(selectAfter = null){
       ui.targetSelect.value = def;
       const node = $(`.tree .node[data-path="${CSS.escape(def)}"]`);
       if (node) node.click(); else { state.activeDir = def; loadFilesInDir(def); }
+    } else {
+      // No directories at all -> show empty state
+      renderEmptyState('empty', '');
     }
-  }catch(e){ console.error(e); toast(e.message || 'Failed to load directories', false); }
+  }catch(e){
+    console.error(e);
+    // Likely not configured
+    renderEmptyState('not-configured');
+    toast(e.message || 'Configure repository in Settings', false);
+  }
 }
 async function selectDir(dir, el){
   $$('.tree .node').forEach(n => n.classList.remove('active'));
@@ -278,12 +515,15 @@ async function loadFilesInDir(dir){
     const files = (await window.api.listFiles(dir)).filter(f => isImg(f.name));
     ui.filesGrid.className = 'files-grid' + (state.viewMode==='list' ? ' list' : '');
     if (!files.length){
-      ui.filesGrid.innerHTML = `<div class="placeholder" style="padding:20px;">No images in <code>${dir}</code>.</div>`;
+      renderEmptyState('empty', dir);
       return;
     }
     if (state.viewMode==='grid') files.forEach(f => ui.filesGrid.appendChild(buildCard(f)));
     else files.forEach(f => ui.filesGrid.appendChild(buildRow(f)));
-  }catch(e){ console.error(e); }
+  }catch(e){
+    console.error(e);
+    renderEmptyState('not-configured');
+  }
 }
 
 // ---------------- Preview ----------------
@@ -351,7 +591,7 @@ async function openNewFolderDialog(){
 
   const updatePreview = () => {
     const v = (nameEl.value || '').replace(/^\/+|\/+$/g,'');
-    const full = v.startsWith('.') || !v ? base : (v.includes('/') || !base) ? `${v}` : `${base}/${v}`;
+    const full = v ? (v.includes('/') || !base ? v : `${base}/${v}`) : base;
     prevEl.textContent = `Will create: ${full}`;
   };
 
@@ -392,25 +632,19 @@ function setViewMode(mode){
   loadFilesInDir(state.activeDir);
 }
 
-// ensure the grid toggle always has an icon (fallback when codicon not present)
-function ensureGridIcon(){
-  const btn = $('#view-toggle .seg[data-mode="grid"]');
-  if (!btn) return;
-  const hasCodicon = btn.querySelector('.codicon');
-  if (!hasCodicon){
-    btn.innerHTML = '<span class="grid-ico"><i></i><i></i><i></i><i></i></span>';
-  }
-}
-
 // ---------------- Wiring ----------------
 function wireCore(){
-  wireMenubar(); wireWindowControls();
+  wireMenubar();
+  wireWindowControls();
+
+  // toolbar icons near window controls
+  ui.tbSettings?.addEventListener('click', ()=> window.Settings.open());
+  ui.tbAbout?.addEventListener('click', ()=> openAbout());
 
   ui.viewToggle?.addEventListener('click', (e)=>{
     const btn = e.target.closest('.seg'); if(btn) setViewMode(btn.dataset.mode);
   });
 
-  // New folder dialog (no prompt)
   ui.newFolder?.addEventListener('click', async (e)=>{
     e.stopPropagation();
     await openNewFolderDialog();
@@ -435,7 +669,6 @@ function wireCore(){
     wireCore();
     if (!window.api){ toast('Preload bridge not loaded (window.api missing).', false); return; }
     await window.Settings.prefill();
-    ensureGridIcon();
     setViewMode(state.viewMode);
     await refreshDirs();
   }catch(e){ console.warn('Init warning:', e?.message || e); }
