@@ -389,84 +389,110 @@
 </dialog>
 
 
-  <!-- Enhanced About Modal (draggable) -->
-  <dialog id="dlg-about" class="modal">
-    <form method="dialog" class="modal-card">
-      <div class="dialog-titlebar modal-titlebar" id="about-titlebar">
-        <div class="dtb-left">
-          <span class="codicon codicon-cloud-upload app-icon"></span>
-          <span class="app-title">About</span>
-        </div>
-        <div class="dtb-center">
-          <span class="about-window-title">Swift Image Uploader</span>
-        </div>
-        <div class="dtb-right">
-          <button id="about-close" type="button" class="tb-btn tb-close" title="Close About" aria-label="Close About">
-            <span class="codicon codicon-close"></span>
-          </button>
+<!-- About (polished layout with brand logo) -->
+<dialog id="dlg-about" class="modal">
+  <form method="dialog" class="modal-card">
+    <!-- VS Code–style titlebar (drag via JS, close button wired in renderer) -->
+    <div class="dialog-titlebar modal-titlebar" id="about-titlebar">
+      <div class="dtb-left">
+        <img class="about-logo-mini" src="assets/logo.png" alt="Swift Image Uploader" />
+        <span class="app-title">About</span>
+      </div>
+      <div class="dtb-center">
+        <span class="about-window-title">Swift Image Uploader</span>
+      </div>
+      <div class="dtb-right">
+        <button id="about-close" type="button" class="tb-btn tb-close" title="Close">
+          <span class="codicon codicon-close"></span>
+        </button>
+      </div>
+    </div>
+
+    <section class="modal-body">
+      <!-- Hero -->
+      <div class="about-hero">
+        <img class="about-logo" src="assets/logo.png" alt="Swift Image Uploader logo" />
+        <div class="hero-text">
+          <h2 class="about-title">Swift Image Uploader</h2>
+          <div class="about-sub">
+            VS Code–styled GitHub image uploader • Version <span id="app-version">—</span>
+          </div>
+          <div class="about-chips">
+            <span class="chip"><span class="codicon codicon-github-inverted"></span> GitHub</span>
+            <span class="chip"><span class="codicon codicon-paintcan"></span> VS Code theme</span>
+            <span class="chip"><span class="codicon codicon-cloud-upload"></span> Image hosting</span>
+          </div>
         </div>
       </div>
 
-      <section class="modal-body">
-        <div class="about-header">
-          <span class="codicon codicon-cloud-upload"></span>
-          <div>
-            <h2 class="about-title">Swift Image Uploader</h2>
-            <div class="about-sub">
-              GitHub image uploader • Version <span id="app-version"></span>
+      <!-- Two columns -->
+      <div class="about-columns">
+        <!-- Left: repo meta + actions -->
+        <div class="about-card">
+          <div class="about-grid">
+            <div>
+              <label>Owner</label>
+              <a id="about-owner" href="#" target="_blank" rel="noreferrer">—</a>
+            </div>
+            <div>
+              <label>Repo</label>
+              <a id="about-repo" href="#" target="_blank" rel="noreferrer">—</a>
+            </div>
+            <div>
+              <label>Branch</label>
+              <span id="about-branch">—</span>
+            </div>
+            <div>
+              <label>Root folder</label>
+              <span id="about-root">—</span>
             </div>
           </div>
-        </div>
 
-        <div class="about-chips">
-          <span class="chip"><span class="codicon codicon-github-inverted"></span> GitHub</span>
-          <span class="chip"><span class="codicon codicon-paintcan"></span> Dark Theme</span>
-          <span class="chip"><span class="codicon codicon-cloud-upload"></span> Image hosting</span>
-        </div>
-
-        <div class="about-grid">
-          <div><label>Owner</label><span id="about-owner">—</span></div>
-          <div><label>Repo</label><span id="about-repo">—</span></div>
-          <div><label>Branch</label><span id="about-branch">—</span></div>
-          <div><label>Root folder</label><span id="about-root">—</span></div>
-        </div>
-
-        <div class="about-dev">
-          <strong>Developer</strong>
-          <div>
-            <a href="https://github.com/skillerious" target="_blank" rel="noreferrer">
-              Robin Doak <code>@skillerious</code>
+          <div class="about-actions">
+            <a class="btn ghost" href="https://github.com/skillerious" target="_blank" rel="noreferrer">
+              <span class="codicon codicon-person"></span> GitHub Profile
             </a>
+            <button type="button" class="btn" id="about-open-settings">
+              <span class="codicon codicon-gear"></span> Open Settings
+            </button>
           </div>
-          <small>Open source • Desktop Python enthusiast</small>
         </div>
 
-        <div class="about-actions">
-          <a class="btn ghost" href="https://github.com/skillerious" target="_blank" rel="noreferrer">
-            <span class="codicon codicon-person"></span> GitHub Profile
-          </a>
-          <button type="button" class="btn" id="about-open-settings">
-            <span class="codicon codicon-gear"></span> Open Settings
-          </button>
-        </div>
+        <!-- Right: developer + shortcuts -->
+        <div class="about-side">
+          <div class="about-card dev">
+            <strong>Developer</strong>
+            <div class="dev-row">
+              <img class="dev-avatar" src="assets/logo.png" alt="" />
+              <div>
+                <a href="https://github.com/skillerious" target="_blank" rel="noreferrer">
+                  Robin Doak <code>@skillerious</code>
+                </a>
+                <small>Open source • Desktop Python enthusiast</small>
+              </div>
+            </div>
+          </div>
 
-        <div class="about-shortcuts">
-          <strong>Shortcuts</strong>
-          <ul>
-            <li><code>Ctrl+U</code> — Open Uploader</li>
-            <li><code>Ctrl+,</code> — Settings</li>
-            <li><code>Ctrl+R</code> — Reload</li>
-            <li><code>Ctrl+Shift+I</code> — Toggle Developer Tools</li>
-          </ul>
+          <div class="about-card shortcuts">
+            <strong>Shortcuts</strong>
+            <ul>
+              <li><code>Ctrl+U</code> — Open Uploader</li>
+              <li><code>Ctrl+,</code> — Settings</li>
+              <li><code>Ctrl+R</code> — Reload</li>
+              <li><code>Ctrl+Shift+I</code> — Toggle Developer Tools</li>
+            </ul>
+          </div>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <footer class="modal-foot">
-        <div class="spacer"></div>
-        <button class="btn primary" type="submit">Close</button>
-      </footer>
-    </form>
-  </dialog>
+    <footer class="modal-foot">
+      <div class="spacer"></div>
+      <button class="btn primary" type="submit">Close</button>
+    </footer>
+  </form>
+</dialog>
+
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

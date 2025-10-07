@@ -1,676 +1,674 @@
-// ---------------- Tiny DOM helpers ----------------
-const $  = (sel, ctx=document) => ctx.querySelector(sel);
-const $$ = (sel, ctx=document) => Array.from(ctx.querySelectorAll(sel));
+/* renderer.js – Swift Image Uploader (everything in one place) */
+(() => {
+  'use strict';
 
-// ---------------- UI Refs ----------------
-const ui = {
-  titlebar: $('#titlebar'),
-  // toolbar buttons (left of window controls)
-  tbSettings: $('#tb-settings'),
-  tbAbout: $('#tb-about'),
+  /* ---------------------- tiny DOM helpers ---------------------- */
+  const $  = (s, r=document) => r.querySelector(s);
+  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
 
-  // window controls
-  winMin: $('#win-min'),
-  winMax: $('#win-max'),
-  winMaxIc: $('#win-max-ic'),
-  winClose: $('#win-close'),
+  /* ---------------------- robust IPC bridge --------------------- */
+  const IPC = {
+    async call(channel, payload){
+      // Prefer generic invoke if preload exposes it.
+      if (typeof window.api?.invoke === 'function') return window.api.invoke(channel, payload);
+      // Fallback to named helpers if present (e.g., window.api.getSettings()).
+      if (typeof window.api?.[channel] === 'function') return window.api[channel](payload);
+      throw new Error(`IPC bridge missing for "${channel}"`);
+    },
+    on(channel, cb){
+      if (typeof window.api?.on === 'function') window.api.on(channel, cb);
+    }
+  };
 
-  // menubar items
-  mFileUpload:   $('#m-file-upload'),
-  mFileSettings: $('#m-file-settings'),
-  mFileRefresh:  $('#m-file-refresh'),
-  mFileExit:     $('#m-file-exit'),
-
-  mEditUndo:      $('#m-edit-undo'),
-  mEditRedo:      $('#m-edit-redo'),
-  mEditCut:       $('#m-edit-cut'),
-  mEditCopy:      $('#m-edit-copy'),
-  mEditPaste:     $('#m-edit-paste'),
-  mEditSelectAll: $('#m-edit-selectall'),
-
-  mViewReload:      $('#m-view-reload'),
-  mViewDevtools:    $('#m-view-devtools'),
-  mViewFullscreen:  $('#m-view-fullscreen'),
-
-  mGoOpenRepo:  $('#m-go-open-repo'),
-  mGoOpenOwner: $('#m-go-open-owner'),
-
-  mToolsNewFolder: $('#m-tools-new-folder'),
-  mToolsUploader:  $('#m-tools-uploader'),
-  mToolsRefresh:   $('#m-tools-refresh'),
-
-  mHelpAbout: $('#m-help-about'),
-
-  // sidebar + center
-  tree: $('#folder-tree'),
-  search: $('#search-folders'),
-  newFolder: $('#btn-new-folder'),
-  refresh: $('#btn-refresh'),
-
-  targetSelect: $('#target-folder'),
-  filesGrid: $('#files-grid'),
-  viewToggle: $('#view-toggle'),
-  openUploader: $('#btn-open-uploader'),
-
-  // preview
-  previewImg: $('#preview-img'),
-  previewEmpty: $('#preview-empty'),
-  linkRaw:  $('#link-raw'),
-  linkMD:   $('#link-md'),
-  linkHTML: $('#link-html'),
-  linkBlob: $('#link-blob'),
-  btnOpenRaw: $('#btn-open-raw'),
-
-  // dialogs
-  dlgAbout: $('#dlg-about'),
-  aboutTitlebar: $('#about-titlebar'),
-
-  toast: $('#toast'),
-};
-
-// ---------------- Local state ----------------
-let state = {
-  dirs: [],
-  activeDir: '',
-  viewMode: localStorage.getItem('viewMode') || 'grid'
-};
-
-// ---------------- Toast ----------------
-function toast(msg, ok = true){
-  ui.toast.textContent = msg;
-  ui.toast.style.borderColor = ok ? 'var(--border)' : 'var(--danger)';
-  ui.toast.style.display = 'block';
-  clearTimeout(ui.toast._t);
-  ui.toast._t = setTimeout(()=> ui.toast.style.display='none', 2400);
-}
-
-// ---------------- Clipboard helper ----------------
-function copyText(textOrSelector){
-  let text = textOrSelector;
-  if (typeof textOrSelector === 'string' && textOrSelector.startsWith('#')) {
-    const el = $(textOrSelector);
+  /* ---------------------- utils ---------------------- */
+  const IMG_EXTS = ['.png','.jpg','.jpeg','.webp','.gif','.bmp','.tiff','.svg','.avif'];
+  const isImageName = (name='') => {
+    const n = String(name).toLowerCase();
+    if (!n || n[0] === '.') return false;           // hide .gitkeep and hidden files
+    return IMG_EXTS.some(ext => n.endsWith(ext));
+  };
+  const fmtBytes = (n) => {
+    if (!n && n !== 0) return '—';
+    const k = 1024;
+    if (n < k) return `${n} B`;
+    const u = ['KB','MB','GB','TB'];
+    let i = -1, v = n;
+    do { v /= k; i++; } while (v >= k && i < u.length-1);
+    return `${v.toFixed(2)} ${u[i]}`;
+  };
+  const toast = (msg, ok=true) => {
+    const el = $('#toast');
     if (!el) return;
-    text = el.value || '';
-  }
-  try {
-    window.api?.copyText?.(text);
-    toast('Copied to clipboard.');
-  } catch {
-    // Fallback
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-    toast('Copied to clipboard.');
-  }
-}
-
-// ---------------- Window controls ----------------
-function setMaxIcon(isMax){
-  if (!ui.winMaxIc) return;
-  ui.winMaxIc.classList.remove('codicon-chrome-maximize','codicon-chrome-restore');
-  ui.winMaxIc.classList.add(isMax ? 'codicon-chrome-restore' : 'codicon-chrome-maximize');
-}
-function wireWindowControls(){
-  if (!window.api) return;
-
-  ui.winMin?.addEventListener('click', ()=> window.api.winMinimize());
-  ui.winMax?.addEventListener('click', ()=> window.api.winMaximize());
-  ui.winClose?.addEventListener('click', ()=> window.api.winClose());
-
-  // initial + live maximize state
-  window.api.winIsMaximized().then(setMaxIcon).catch(()=>{});
-  window.api.onWinMaxState?.(v => setMaxIcon(!!v));
-
-  // double-click titlebar => maximize / restore
-  ui.titlebar?.addEventListener('dblclick', (e)=>{
-    if (!e.target.closest('.no-drag')) window.api?.winMaximize?.();
-  });
-}
-
-// ---------------- Menubar (open/close handling) ----------------
-function closeMenus(){
-  $$('.menubar .menu').forEach(m=>{
-    m.classList.remove('open');
-    m.querySelector('.menu-btn')?.setAttribute('aria-expanded','false');
-  });
-}
-function toggleMenu(el, open){
-  if (open===undefined) open=!el.classList.contains('open');
-  closeMenus();
-  if (open){
-    el.classList.add('open');
-    el.querySelector('.menu-btn')?.setAttribute('aria-expanded','true');
-  }
-}
-function wireMenubar(){
-  // open/close behavior
-  $$('.menubar .menu').forEach(m => {
-    const btn = m.querySelector('.menu-btn');
-    if (!btn) return;
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleMenu(m);
-    });
-  });
-  document.addEventListener('click', e=>{
-    if(!e.target.closest('.menubar')) closeMenus();
-  });
-  document.addEventListener('keydown', e=>{
-    if(e.key==='Escape') closeMenus();
-  });
-
-  // FILE
-  ui.mFileUpload?.addEventListener('click', ()=>{ closeMenus(); openUploader(); });
-  ui.mFileSettings?.addEventListener('click', ()=>{ closeMenus(); window.Settings.open(); });
-  ui.mFileRefresh?.addEventListener('click', ()=>{ closeMenus(); refreshDirs(state.activeDir); });
-  ui.mFileExit?.addEventListener('click', ()=>{ closeMenus(); window.api?.appQuit?.(); });
-
-  // EDIT
-  ui.mEditUndo?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('undo'); });
-  ui.mEditRedo?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('redo'); });
-  ui.mEditCut?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('cut'); });
-  ui.mEditCopy?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('copy'); });
-  ui.mEditPaste?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('paste'); });
-  ui.mEditSelectAll?.addEventListener('click', ()=>{ closeMenus(); document.execCommand('selectAll'); });
-
-  // VIEW
-  ui.mViewReload?.addEventListener('click', ()=>{ closeMenus(); window.api?.appReload?.(); });
-  ui.mViewDevtools?.addEventListener('click', ()=>{ closeMenus(); window.api?.toggleDevTools?.(); });
-  ui.mViewFullscreen?.addEventListener('click', async ()=>{ closeMenus(); window.api?.winMaximize?.(); });
-
-  // GO
-  ui.mGoOpenRepo?.addEventListener('click', ()=>{
-    closeMenus();
-    const owner = window.Settings.getOwner(), repo = window.Settings.getRepo();
-    if (owner && repo) window.open(`https://github.com/${owner}/${repo}`, '_blank');
-  });
-  ui.mGoOpenOwner?.addEventListener('click', ()=>{
-    closeMenus();
-    const owner = window.Settings.getOwner();
-    if (owner) window.open(`https://github.com/${owner}`, '_blank');
-  });
-
-  // TOOLS
-  ui.mToolsNewFolder?.addEventListener('click', async ()=>{ closeMenus(); await openNewFolderDialog(); });
-  ui.mToolsUploader?.addEventListener('click', ()=>{ closeMenus(); openUploader(); });
-  ui.mToolsRefresh?.addEventListener('click', ()=>{ closeMenus(); refreshDirs(state.activeDir); });
-
-  // HELP
-  ui.mHelpAbout?.addEventListener('click', ()=>{ closeMenus(); openAbout(); });
-
-  // Native menu relays
-  window.api?.onOpenSettings?.(()=> window.Settings.open());
-  window.api?.onOpenAbout?.(()=> openAbout());
-  window.api?.onOpenUpload?.(()=> openUploader());
-}
-
-// ---------------- Settings safety fallback ----------------
-if (!window.Settings) {
-  window.Settings = (() => {
-    let cache = { owner:'', repo:'', branch:'main', rootDir:'images', defaultSelect:'' };
-    async function prefill(){
-      try{
-        const s = await window.api.getSettings();
-        cache.owner  = s.owner || '';
-        cache.repo   = s.repo  || '';
-        cache.branch = s.branch|| 'main';
-        cache.rootDir= s.rootDir|| 'images';
-        cache.defaultSelect = localStorage.getItem('defaultSelect') || '';
-      }catch{}
+    el.textContent = msg;
+    el.style.borderColor = ok ? 'var(--border)' : 'var(--danger)';
+    el.style.display = 'block';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.style.display = 'none', 2400);
+  };
+  const copyText = async (text) => {
+    try {
+      // Prefer secure ipc clipboard to avoid navigator permission issues
+      await IPC.call('clipboard:write', String(text ?? ''));
+      toast('Copied to clipboard');
+    } catch {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(String(text ?? ''));
+        toast('Copied to clipboard');
+      } else {
+        toast('Copy failed', false);
+      }
     }
-    return {
-      init(){},
-      async prefill(){ await prefill(); },
-      open(){ /* real dialog handled in settings.js */ },
-      getOwner(){ return cache.owner; },
-      getRepo(){ return cache.repo; },
-      getBranch(){ return cache.branch; },
-      getRoot(){ return cache.rootDir; },
-      getDefaultSelect(){ return cache.defaultSelect; }
+  };
+
+  /* ---------------------- app state ---------------------- */
+  const state = {
+    view: localStorage.getItem('view') || 'grid',
+    folders: [],
+    currentFolder: '',
+    files: [],
+    selected: null,
+  };
+
+  /* ---------------------- titlebar wiring ---------------------- */
+  async function wireTitlebar(){
+    const btnMin = $('#win-min');
+    const btnMax = $('#win-max');
+    const btnClose = $('#win-close');
+    const icMax = $('#win-max-ic');
+
+    btnMin?.addEventListener('click', () => IPC.call('win:minimize'));
+    btnMax?.addEventListener('click', () => IPC.call('win:maximize'));
+    btnClose?.addEventListener('click', () => IPC.call('win:close'));
+
+    // reflect maximized state
+    const setMaxState = (isMax) => {
+      if (!icMax) return;
+      icMax.classList.remove('codicon-chrome-maximize','codicon-chrome-restore');
+      icMax.classList.add(isMax ? 'codicon-chrome-restore' : 'codicon-chrome-maximize');
     };
-  })();
-}
+    try {
+      const isNow = await IPC.call('win:isMaximized');
+      setMaxState(!!isNow);
+    } catch {}
+    IPC.on?.('win:max-state', (_e, isMax) => setMaxState(!!isMax));
 
-// ---------------- About (content + dragging) ----------------
-function enableDialogDragging(dlg, handleEl, storageKey){
-  if (!dlg || !handleEl) return;
-  if (dlg.dataset.dragInit === '1') return; // only wire once
-  dlg.dataset.dragInit = '1';
-
-  const card = dlg.querySelector('.modal-card');
-  if (!card) return;
-
-  function centerCard(){
-    card.style.position = 'fixed';
-    card.style.left = '50%';
-    card.style.top = '50%';
-    card.style.transform = 'translate(-50%, -50%)';
+    // quick toolbar buttons
+    $('#tb-settings')?.addEventListener('click', () => Settings?.open?.());
+    $('#tb-about')?.addEventListener('click', openAbout);
   }
 
-  // restore last position if any
-  try {
-    const pos = JSON.parse(localStorage.getItem(storageKey) || 'null');
-    card.style.position = 'fixed';
-    if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
-      card.style.left = pos.x + 'px';
-      card.style.top  = pos.y + 'px';
-      card.style.transform = 'none';
-    } else {
-      centerCard();
-    }
-  } catch { centerCard(); }
+  /* ---------------------- menus (in-window) ---------------------- */
+  function wireMenubar(){
+    const menus = $$('.menu');
+    menus.forEach(m => {
+      const btn = $('.menu-btn', m);
+      const panel = $('.menu-panel', m);
+      btn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menus.forEach(x => x.classList.toggle('open', x === m ? !m.classList.contains('open') : false));
+      });
+      // keep menus keyboard-friendly: make all buttons type=button
+      $$('.menu-item', panel).forEach(b => b.setAttribute('type','button'));
+    });
+    document.addEventListener('click', () => menus.forEach(m => m.classList.remove('open')));
 
-  let dragging = false, offX = 0, offY = 0;
+    // commands
+    $('#m-file-upload')?.addEventListener('click', () => IPC.call('window:open-upload'));
+    $('#m-file-settings')?.addEventListener('click', () => Settings?.open?.());
+    $('#m-file-refresh')?.addEventListener('click', rebuildEverything);
+    $('#m-file-exit')?.addEventListener('click', () => IPC.call('app:quit'));
 
-  const onDown = (ev) => {
-    if (ev.button !== 0) return;
-    dragging = true;
-    const rect = card.getBoundingClientRect();
-    offX = ev.clientX - rect.left;
-    offY = ev.clientY - rect.top;
-    card.style.transform = 'none';
-    handleEl.classList.add('grabbing');
-    card.classList.add('dragging');
-    ev.preventDefault();
-  };
+    $('#m-view-reload')?.addEventListener('click', () => IPC.call('app:reload'));
+    $('#m-view-devtools')?.addEventListener('click', () => IPC.call('devtools:toggle'));
+    $('#m-view-fullscreen')?.addEventListener('click', () => document.documentElement.requestFullscreen?.());
 
-  const onMove = (ev) => {
-    if (!dragging) return;
-    let x = ev.clientX - offX;
-    let y = ev.clientY - offY;
-    const pad = 8;
-    const cw = card.offsetWidth, ch = card.offsetHeight;
-    x = Math.min(Math.max(pad, x), Math.max(pad, window.innerWidth  - cw - pad));
-    y = Math.min(Math.max(pad, y), Math.max(pad, window.innerHeight - ch - pad));
-    card.style.left = x + 'px';
-    card.style.top  = y + 'px';
-  };
+    $('#m-go-open-repo')?.addEventListener('click', () => {
+      const owner = Settings?.getOwner?.() || '';
+      const repo  = Settings?.getRepo?.() || '';
+      if (owner && repo) window.open(`https://github.com/${owner}/${repo}`, '_blank','noreferrer');
+      else toast('Fill Owner/Repo in Settings first', false);
+    });
+    $('#m-go-open-owner')?.addEventListener('click', () => {
+      const owner = Settings?.getOwner?.() || '';
+      if (owner) window.open(`https://github.com/${owner}`, '_blank','noreferrer');
+      else toast('Fill Owner in Settings first', false);
+    });
 
-  const onUp = () => {
-    if (!dragging) return;
-    dragging = false;
-    handleEl.classList.remove('grabbing');
-    card.classList.remove('dragging');
-    const rect = card.getBoundingClientRect();
-    localStorage.setItem(storageKey, JSON.stringify({ x: rect.left, y: rect.top }));
-  };
+    $('#m-tools-new-folder')?.addEventListener('click', newFolderFlow);
+    $('#m-tools-uploader')?.addEventListener('click', () => IPC.call('window:open-upload'));
+    $('#m-tools-refresh')?.addEventListener('click', rebuildEverything);
 
-  handleEl.addEventListener('mousedown', onDown);
-  window.addEventListener('mousemove', onMove);
-  window.addEventListener('mouseup', onUp);
-}
-
-async function openAbout(){
-  if (!window.api) return;
-  $('#app-version').textContent = await window.api.appVersion();
-  $('#about-owner').textContent  = window.Settings.getOwner() || '—';
-
-  const owner = window.Settings.getOwner();
-  const repo  = window.Settings.getRepo();
-  $('#about-repo').innerHTML = owner && repo
-    ? `<a href="https://github.com/${owner}/${repo}" target="_blank" rel="noreferrer">${repo}</a>`
-    : '—';
-
-  $('#about-branch').textContent = window.Settings.getBranch() || '—';
-  $('#about-root').textContent   = window.Settings.getRoot()   || '—';
-
-  ui.dlgAbout.showModal();
-  enableDialogDragging(ui.dlgAbout, $('#about-titlebar'), 'aboutPos');
-}
-
-// Close About via custom titlebar button + CTA
-document.addEventListener('click', (e) => {
-  const closeBtn = e.target.closest('#about-close');
-  if (closeBtn) {
-    e.preventDefault();
-    $('#dlg-about')?.close();
+    $('#m-help-about')?.addEventListener('click', openAbout);
   }
-});
-$('#about-open-settings')?.addEventListener('click', () => {
-  $('#dlg-about')?.close();
-  window.Settings?.open?.();
-});
 
-// ---------------- Empty State (beautiful, not using logo) ----------------
-function emptyIllustrationSVG(){
-  // Friendly “image grid + cloud” line illustration in muted tones
-  return `
-<svg viewBox="0 0 220 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <defs>
-    <linearGradient id="g1" x1="0" x2="1" y1="0" y2="0">
-      <stop offset="0"  stop-color="#3794ff" stop-opacity=".9"/>
-      <stop offset="1"  stop-color="#0e639c" stop-opacity=".9"/>
-    </linearGradient>
-  </defs>
-  <!-- Grid frame -->
-  <rect x="12" y="14" width="120" height="92" rx="10" ry="10" fill="none" stroke="#3c3c3c" stroke-width="2"/>
-  <!-- Grid cells -->
-  <rect x="24" y="26" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
-  <rect x="72" y="26" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
-  <rect x="24" y="58" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
-  <rect x="72" y="58" width="44" height="28" rx="4" ry="4" fill="none" stroke="#555" />
-  <!-- Tiny mountains in a cell -->
-  <path d="M28 77 l10-10 10 12 5-5 9 11H28Z" fill="none" stroke="#666"/>
-  <!-- Cloud upload -->
-  <path d="M158 92c-10 0-18-7-18-16 0-8 6-14 14-16 2-11 12-20 25-20 13 0 23 9 24 21 9 2 15 9 15 17 0 10-9 18-20 18h-40z" fill="none" stroke="#3c3c3c" stroke-width="2"/>
-  <path d="M178 79v-22" stroke="url(#g1)" stroke-width="3" stroke-linecap="round"/>
-  <path d="M166 66l12-12 12 12" fill="none" stroke="url(#g1)" stroke-width="3" stroke-linecap="round" />
-</svg>`;
-}
+  /* ---------------------- GitHub wrappers via IPC ---------------------- */
+  const GH = {
+    async listDirs(){ return await IPC.call('github:listDirs'); },
+    async listFiles(dir){ return await IPC.call('github:listFiles', dir); },
+    async createDir(fullPath){ return await IPC.call('github:createDir', fullPath); },
+    async deleteFile(pathInRepo){ return await IPC.call('github:delete', pathInRepo); },
+    async rename(oldPath, newPath){ return await IPC.call('github:rename', { oldPath, newPath }); }
+  };
 
-function renderEmptyState(kind, dir){
-  // kind: 'not-configured' | 'empty'
-  ui.filesGrid.className = 'files-grid empty';
-  const title = kind === 'not-configured' ? 'Connect your GitHub repo' : 'Nothing here yet';
-  const sub = kind === 'not-configured'
-    ? 'Add your GitHub details in Settings to browse folders and upload images.'
-    : `No images found in ${dir ? `<code>${dir}</code>` : 'this folder'}.`;
+  /* ---------------------- Folder tree ---------------------- */
+  async function rebuildTree(){
+    const treeEl = $('#folder-tree');
+    if (!treeEl) return;
+    treeEl.innerHTML = '<div class="placeholder">Loading folders…</div>';
 
-  ui.filesGrid.innerHTML = `
-    <div class="empty-wrap">
-      <div class="es-card">
-        <div class="es-illustration">${emptyIllustrationSVG()}</div>
-        <h3 class="es-title">${title}</h3>
-        <p class="es-sub">${sub}</p>
+    const dirs = await GH.listDirs();
+    // persistent store
+    state.folders = dirs.slice().sort((a,b) => a.localeCompare(b));
+    // filter to only within root shown by settings (GH already does this in main)
+    const filterText = ($('#search-folders')?.value || '').trim().toLowerCase();
 
-        <div class="es-actions">
-          <button class="btn" data-es="open-settings"><span class="codicon codicon-gear"></span> Open Settings</button>
-          <button class="btn" data-es="new-folder"><span class="codicon codicon-new-folder"></span> New Folder</button>
-          <button class="btn primary" data-es="open-uploader"><span class="codicon codicon-cloud-upload"></span> Upload Images</button>
-        </div>
-
-        <div class="es-links">
-          Tip: You can also <a href="#" data-es="refresh">refresh</a> after creating folders or uploading via GitHub.
-        </div>
-      </div>
-    </div>
-  `;
-
-  // Actions
-  ui.filesGrid.querySelector('[data-es="open-settings"]')?.addEventListener('click', () => window.Settings.open());
-  ui.filesGrid.querySelector('[data-es="new-folder"]')?.addEventListener('click', async () => { await openNewFolderDialog(); });
-  ui.filesGrid.querySelector('[data-es="open-uploader"]')?.addEventListener('click', () => openUploader());
-  ui.filesGrid.querySelector('[data-es="refresh"]')?.addEventListener('click', (e) => { e.preventDefault(); refreshDirs(state.activeDir); });
-}
-
-// ---------------- Tree building ----------------
-function buildTreeNodes(paths){
-  const root = {};
-  for (const p of paths){
-    const parts = p.split('/').filter(Boolean);
-    let cur = root;
-    for (const part of parts){
-      cur.children = cur.children || {};
-      cur.children[part] = cur.children[part] || {};
-      cur = cur.children[part];
-    }
-  }
-  function render(node, base=''){
     const frag = document.createDocumentFragment();
-    const kids = node.children ? Object.keys(node.children).sort((a,b)=>a.localeCompare(b)) : [];
-    for (const name of kids){
-      const full = base ? `${base}/${name}` : name;
-      const el = document.createElement('div');
-      el.className = 'node';
-      el.dataset.path = full;
-      el.innerHTML = `<span class="codicon codicon-folder"></span><span class="label" title="${full}">${name}</span>`;
-      el.addEventListener('click', ()=> selectDir(full, el));
-      frag.appendChild(el);
-      const sub = render(node.children[name], full);
-      if (sub.childElementCount){ sub.style.marginLeft='16px'; frag.appendChild(sub); }
-    }
-    const wrap = document.createElement('div'); wrap.appendChild(frag); return wrap;
-  }
-  const c = document.createElement('div'); c.appendChild(render(root)); return c;
-}
-function renderTree(){
-  ui.tree.innerHTML = '';
-  const term = ui.search.value.trim().toLowerCase();
-  const list = term ? state.dirs.filter(d => d.toLowerCase().includes(term)) : state.dirs;
-  ui.tree.appendChild(buildTreeNodes(list.slice()));
-}
-async function refreshDirs(selectAfter = null){
-  if (!window.api) return;
-  try{
-    const dirs = await window.api.listDirs();
-    state.dirs = dirs;
-    renderTree();
+    state.folders.forEach(d => {
+      if (filterText && !d.toLowerCase().includes(filterText)) return;
+      const depth = d.split('/').length - 1;
+      const node = document.createElement('div');
+      node.className = 'node';
+      node.dataset.path = d;
 
-    // refresh folder selector
-    ui.targetSelect.innerHTML = '';
-    for (const d of dirs){
-      const opt = document.createElement('option'); opt.value=d; opt.textContent=d;
-      ui.targetSelect.appendChild(opt);
-    }
+      // indent using left padding, keep icons aligned
+      node.style.paddingLeft = `${6 + depth * 14}px`;
 
-    const def = selectAfter || (dirs.find(d => d === (window.Settings?.getDefaultSelect() || '')) || dirs[0] || '');
-    if (def){
-      ui.targetSelect.value = def;
-      const node = $(`.tree .node[data-path="${CSS.escape(def)}"]`);
-      if (node) node.click(); else { state.activeDir = def; loadFilesInDir(def); }
+      node.innerHTML = `
+        <span class="codicon codicon-root-folder"></span>
+        <span class="label" title="${d}">${d}</span>
+      `;
+      node.addEventListener('click', () => {
+        $$('.tree .node').forEach(n => n.classList.remove('active'));
+        node.classList.add('active');
+        state.currentFolder = d;
+        $('#target-folder').value = d;
+        rebuildFiles();
+      });
+      node.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showFolderContextMenu(e.pageX, e.pageY, d);
+      });
+
+      frag.appendChild(node);
+    });
+    treeEl.innerHTML = '';
+    treeEl.appendChild(frag);
+
+    // select default
+    if (!state.currentFolder) {
+      const def = Settings?.getDefaultSelect?.() || Settings?.getRoot?.() || state.folders[0] || '';
+      const found = $(`.tree .node[data-path="${CSS.escape(def)}"]`) || $('.tree .node');
+      found?.click();
     } else {
-      // No directories at all -> show empty state
-      renderEmptyState('empty', '');
+      $(`.tree .node[data-path="${CSS.escape(state.currentFolder)}"]`)?.classList.add('active');
     }
-  }catch(e){
-    console.error(e);
-    // Likely not configured
-    renderEmptyState('not-configured');
-    toast(e.message || 'Configure repository in Settings', false);
   }
-}
-async function selectDir(dir, el){
-  $$('.tree .node').forEach(n => n.classList.remove('active'));
-  el?.classList.add('active');
-  state.activeDir = dir;
-  ui.targetSelect.value = dir;
-  await loadFilesInDir(dir);
-}
 
-// ---------------- Files (grid/list) ----------------
-const isImg = (n) => /\.(png|jpe?g|gif|bmp|webp|tiff?|svg)$/i.test(n||'');
+  function showFolderContextMenu(x, y, path){
+    let menu = $('#folder-ctx');
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.id = 'folder-ctx';
+      menu.className = 'ctx-menu';
+      menu.innerHTML = `
+        <div class="mi" data-act="new"><span class="codicon codicon-new-folder"></span> New subfolder</div>
+        <div class="mi" data-act="rename"><span class="codicon codicon-edit"></span> Rename folder</div>
+        <div class="mi" data-act="delete"><span class="codicon codicon-trash"></span> Delete folder</div>
+      `;
+      document.body.appendChild(menu);
+      document.addEventListener('click', () => menu.style.display='none');
+    }
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.style.display = 'block';
 
-function buildCard({ name, path }){
-  const owner=window.Settings.getOwner(), repo=window.Settings.getRepo(), branch=encodeURIComponent(window.Settings.getBranch());
-  const raw = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
-  const blob= `https://github.com/${owner}/${repo}/blob/${branch}/${path}`;
-  const card = document.createElement('div'); card.className='file-card';
-  card.innerHTML = `
-    <div class="file-thumb"><img loading="lazy" src="${raw}" alt="${name}"></div>
-    <div class="file-name" title="${name}">${name}</div>
-    <div class="file-actions">
-      <button class="btn xs ghost" data-act="preview" title="Preview"><span class="codicon codicon-eye"></span></button>
-      <button class="btn xs ghost" data-act="copy" title="Copy raw URL"><span class="codicon codicon-clippy"></span></button>
-      <a class="btn xs ghost" href="${raw}" target="_blank" rel="noreferrer" title="Open raw"><span class="codicon codicon-link-external"></span></a>
-    </div>`;
-  card.querySelector('[data-act="preview"]').addEventListener('click', ()=> setPreview({ raw, blob, markdown:`![${name}](${raw})`, html:`<img src="${raw}" alt="${name}">` }));
-  card.querySelector('[data-act="copy"]').addEventListener('click', ()=> copyText(raw));
-  return card;
-}
-function buildRow({ name, path }){
-  const owner=window.Settings.getOwner(), repo=window.Settings.getRepo(), branch=encodeURIComponent(window.Settings.getBranch());
-  const raw = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
-  const blob= `https://github.com/${owner}/${repo}/blob/${branch}/${path}`;
-  const row = document.createElement('div'); row.className='file-row';
-  row.innerHTML = `
-    <div class="row-thumb"><img loading="lazy" src="${raw}" alt="${name}"></div>
-    <div class="row-name" title="${name}">${name}</div>
-    <div class="row-actions">
-      <button class="btn xs ghost" data-act="preview" title="Preview"><span class="codicon codicon-eye"></span></button>
-      <button class="btn xs ghost" data-act="copy" title="Copy raw URL"><span class="codicon codicon-clippy"></span></button>
-      <a class="btn xs ghost" href="${raw}" target="_blank" rel="noreferrer" title="Open raw"><span class="codicon codicon-link-external"></span></a>
-    </div>`;
-  row.querySelector('[data-act="preview"]').addEventListener('click', ()=> setPreview({ raw, blob, markdown:`![${name}](${raw})`, html:`<img src="${raw}" alt="${name}">` }));
-  row.querySelector('[data-act="copy"]').addEventListener('click', ()=> copyText(raw));
-  return row;
-}
-async function loadFilesInDir(dir){
-  ui.filesGrid.innerHTML = '';
-  if (!window.api) return;
-  try{
-    const files = (await window.api.listFiles(dir)).filter(f => isImg(f.name));
-    ui.filesGrid.className = 'files-grid' + (state.viewMode==='list' ? ' list' : '');
-    if (!files.length){
-      renderEmptyState('empty', dir);
+    const act = (type) => {
+      if (type === 'new') return newFolderFlow(path + '/');
+      if (type === 'rename') return renameFolderFlow(path);
+      if (type === 'delete') return deleteFolderFlow(path);
+    };
+    $$('.mi', menu).forEach(mi => {
+      mi.onclick = (e) => { e.stopPropagation(); menu.style.display='none'; act(mi.dataset.act); };
+    });
+  }
+
+  async function newFolderFlow(prefix = ''){
+    const base = prefix || (state.currentFolder ? state.currentFolder + '/' : (Settings?.getRoot?.() || 'images/') );
+    const name = await promptNice('New folder', 'Enter a new folder name', { placeholder: 'e.g. avatars', value: '' });
+    if (!name) return;
+    const full = (base + name).replace(/\/+/g,'/').replace(/\/$/, '');
+    try {
+      await GH.createDir(full);
+      toast('Folder created');
+      await rebuildTree();
+    } catch (e) {
+      console.error(e);
+      toast(e.message || 'Create folder failed', false);
+    }
+  }
+  async function renameFolderFlow(oldPath){
+    const base = oldPath.split('/').slice(0,-1).join('/');
+    const curr = oldPath.split('/').pop();
+    const name = await promptNice('Rename folder', `Rename “${oldPath}” to:`, { value: curr || '' });
+    if (!name || name === curr) return;
+
+    // list files and rename one by one by moving path
+    try{
+      const files = await GH.listFiles(oldPath);
+      for (const f of files) {
+        if (!f.path) continue;
+        const newPath = (base ? base+'/' : '') + name + '/' + f.name;
+        await GH.rename(f.path, newPath);
+      }
+      toast('Folder renamed');
+      await rebuildTree();
+      // reselect
+      state.currentFolder = (base ? base+'/' : '') + name;
+      rebuildFiles();
+    }catch(e){
+      console.error(e);
+      toast(e.message || 'Rename failed', false);
+    }
+  }
+  async function deleteFolderFlow(path){
+    if (!confirm(`Delete folder "${path}" and its files?`)) return;
+    try{
+      // delete only files directly under; (recursive delete can be added similarly)
+      const files = await GH.listFiles(path);
+      for (const f of files) await GH.deleteFile(f.path);
+      toast('Folder emptied (folder disappears once GitHub refreshes)');
+      await rebuildTree();
+      state.currentFolder = Settings?.getRoot?.() || '';
+      rebuildFiles();
+    }catch(e){
+      console.error(e);
+      toast(e.message || 'Delete failed', false);
+    }
+  }
+
+  /* ---------------------- Files area ---------------------- */
+  async function rebuildFiles(){
+    const grid = $('#files-grid');
+    const sel = $('#target-folder');
+
+    // build dropdown
+    sel.innerHTML = state.folders.map(f => `<option value="${f}">${f}</option>`).join('');
+    if (state.currentFolder) sel.value = state.currentFolder;
+    sel.onchange = () => {
+      state.currentFolder = sel.value;
+      $$('.tree .node').forEach(n => n.classList.toggle('active', n.dataset.path === state.currentFolder));
+      rebuildFiles();
+    };
+
+    // nothing selected => empty UI
+    if (!state.currentFolder) {
+      grid.classList.add('empty');
+      grid.innerHTML = buildEmptyState();
       return;
     }
-    if (state.viewMode==='grid') files.forEach(f => ui.filesGrid.appendChild(buildCard(f)));
-    else files.forEach(f => ui.filesGrid.appendChild(buildRow(f)));
-  }catch(e){
-    console.error(e);
-    renderEmptyState('not-configured');
-  }
-}
 
-// ---------------- Preview ----------------
-function setPreview(links){
-  if (!links){
-    ui.previewImg.style.display='none';
-    ui.previewEmpty.style.display='block';
-    ui.linkRaw.value=ui.linkMD.value=ui.linkHTML.value=ui.linkBlob.value='';
-    ui.btnOpenRaw.disabled = true; return;
-  }
-  ui.previewImg.src = links.raw;
-  ui.previewImg.style.display='inline-block';
-  ui.previewEmpty.style.display='none';
-  ui.linkRaw.value = links.raw||'';
-  ui.linkMD.value  = links.markdown||'';
-  ui.linkHTML.value= links.html||'';
-  ui.linkBlob.value= links.blob||'';
-  ui.btnOpenRaw.disabled = !links.raw;
-  ui.btnOpenRaw.onclick = () => window.open(links.raw,'_blank');
-}
+    grid.classList.remove('empty');
+    grid.innerHTML = '<div class="placeholder">Loading…</div>';
 
-// ---------------- New folder dialog (replaces window.prompt) ----------------
-let newFolderDlg;
-function ensureNewFolderDialog(){
-  if (newFolderDlg) return newFolderDlg;
-  const markup = `
-    <dialog id="dlg-new-folder" class="modal">
-      <form method="dialog" class="modal-card">
-        <header class="modal-head">
-          <h3><span class="codicon codicon-new-folder"></span> New Folder</h3>
-        </header>
-        <section class="modal-body">
-          <div class="field">
-            <label>Base path</label>
-            <input id="nf-base" type="text" readonly />
-          </div>
-          <div class="field">
-            <label>Folder name (relative)</label>
-            <input id="nf-name" type="text" placeholder="e.g. avatars/2025" autocomplete="off" />
-          </div>
-          <small id="nf-preview"></small>
-        </section>
-        <footer class="modal-foot">
-          <button id="nf-cancel" class="btn ghost" type="button">Cancel</button>
-          <button id="nf-create" class="btn primary" type="button">Create</button>
-        </footer>
-      </form>
-    </dialog>`;
-  document.body.insertAdjacentHTML('beforeend', markup);
-  newFolderDlg = $('#dlg-new-folder');
-  return newFolderDlg;
-}
-async function openNewFolderDialog(){
-  const dlg = ensureNewFolderDialog();
-  const base = ui.targetSelect.value || (window.Settings?.getRoot() || 'images');
-  const baseEl = $('#nf-base', dlg);
-  const nameEl = $('#nf-name', dlg);
-  const prevEl = $('#nf-preview', dlg);
-  const cancel = $('#nf-cancel', dlg);
-  const create = $('#nf-create', dlg);
+    let files = await GH.listFiles(state.currentFolder);
+    // Filter: show only images (no .gitkeep nor any dotfiles)
+    files = (files || []).filter(x => isImageName(x.name));
 
-  baseEl.value = base;
-  nameEl.value = '';
-  prevEl.textContent = '';
+    state.files = files;
 
-  const updatePreview = () => {
-    const v = (nameEl.value || '').replace(/^\/+|\/+$/g,'');
-    const full = v ? (v.includes('/') || !base ? v : `${base}/${v}`) : base;
-    prevEl.textContent = `Will create: ${full}`;
-  };
-
-  nameEl.oninput = updatePreview;
-  updatePreview();
-
-  const close = () => dlg.close();
-  cancel.onclick = close;
-
-  create.onclick = async () => {
-    const v = (nameEl.value || '').trim();
-    if (!v) { nameEl.focus(); return; }
-    const cleaned = v.replace(/^\/+|\/+$/g,'');
-    const full = (cleaned.includes('/') || !base) ? cleaned : `${base}/${cleaned}`;
-    try{
-      await window.api.createDir(full);
-      close();
-      await refreshDirs(full);
-      toast(`Folder created: ${full}`);
-    }catch(err){
-      console.error(err);
-      toast(err?.message || 'Failed to create folder', false);
+    if (!files.length) {
+      grid.classList.add('empty');
+      grid.innerHTML = buildEmptyState(true);
+      return;
     }
-  };
 
-  dlg.showModal();
-}
+    grid.classList.remove('empty');
+    grid.className = 'files-grid ' + (state.view === 'list' ? 'list' : '');
 
-// ---------------- Actions ----------------
-function openUploader(){ window.api?.openUpload?.(); }
-function setViewMode(mode){
-  state.viewMode = mode; localStorage.setItem('viewMode', mode);
-  $$('#view-toggle .seg').forEach(b => {
-    const active = b.dataset.mode === mode;
-    b.classList.toggle('active', active);
-    b.setAttribute('aria-selected', String(active));
-  });
-  loadFilesInDir(state.activeDir);
-}
+    if (state.view === 'list') renderList(files, grid);
+    else renderGrid(files, grid);
+  }
 
-// ---------------- Wiring ----------------
-function wireCore(){
-  wireMenubar();
-  wireWindowControls();
+  function buildEmptyState(showNewFolder=false){
+    const tips = `
+      <div class="es-links">
+        Tips:
+        <ul style="text-align:left; margin:8px auto; max-width:520px; line-height:1.6; color:var(--muted)">
+          <li>Use <code>Upload…</code> to add images quickly.</li>
+          <li>Right-click folders to create, rename, or delete them.</li>
+          <li>Set your <strong>Owner/Repo/Branch</strong> in Settings.</li>
+        </ul>
+      </div>`;
+    const actions = `
+      <div class="es-actions">
+        ${showNewFolder ? `<button class="btn" id="es-new"><span class="codicon codicon-new-folder"></span> New folder</button>` : ''}
+        <button class="btn primary" id="es-settings"><span class="codicon codicon-gear"></span> Open settings</button>
+        <button class="btn" id="es-upload"><span class="codicon codicon-cloud-upload"></span> Upload…</button>
+      </div>`;
+    const ill = `
+      <div class="es-illustration">
+        <img alt="Empty" src="assets/emptystate.png" />
+      </div>`;
+    const html = `
+      <div class="empty-wrap">
+        <div class="es-card">
+          ${ill}
+          <div class="es-title">No images here yet</div>
+          <p class="es-sub">Drop files into this app or click Upload to push images to your repository.</p>
+          ${actions}
+          ${tips}
+        </div>
+      </div>`;
+    setTimeout(() => {
+      $('#es-settings')?.addEventListener('click', () => Settings?.open?.());
+      $('#es-upload')?.addEventListener('click', () => IPC.call('window:open-upload'));
+      $('#es-new')?.addEventListener('click', () => newFolderFlow());
+    }, 0);
+    return html;
+  }
 
-  // toolbar icons near window controls
-  ui.tbSettings?.addEventListener('click', ()=> window.Settings.open());
-  ui.tbAbout?.addEventListener('click', ()=> openAbout());
+  function renderGrid(files, host){
+    const frag = document.createDocumentFragment();
+    files.forEach(f => {
+      const card = document.createElement('div');
+      card.className = 'file-card';
+      card.innerHTML = `
+        <div class="file-thumb"><img alt="" loading="lazy"></div>
+        <div class="file-name" title="${f.name}">${f.name}</div>
+        <div class="file-actions">
+          <button class="btn xs" title="Preview"><span class="codicon codicon-eye"></span></button>
+          <button class="btn xs" title="Copy raw URL"><span class="codicon codicon-link"></span></button>
+          <button class="btn xs" title="Copy Markdown"><span class="codicon codicon-markdown"></span></button>
+          <button class="btn xs" title="Copy HTML"><span class="codicon codicon-code"></span></button>
+          <button class="btn xs" title="Rename"><span class="codicon codicon-edit"></span></button>
+          <button class="btn xs danger" title="Delete"><span class="codicon codicon-trash"></span></button>
+        </div>
+      `;
+      const img = $('img', card);
+      img.src = f.download_url || f.raw || '';
+      img.addEventListener('click', () => selectFile(f));
 
-  ui.viewToggle?.addEventListener('click', (e)=>{
-    const btn = e.target.closest('.seg'); if(btn) setViewMode(btn.dataset.mode);
-  });
+      const [bPrev,bRaw,bMd,bHtml,bRen,bDel] = $$('.btn', card);
+      bPrev.addEventListener('click', () => selectFile(f));
+      bRaw.addEventListener('click', () => copyText(f.download_url || f.raw || ''));
+      bMd.addEventListener('click', () => copyText(`![${f.name}](${f.download_url || f.raw})`));
+      bHtml.addEventListener('click', () => copyText(`<img src="${f.download_url || f.raw}" alt="${f.name}">`));
+      bRen.addEventListener('click', () => renameFileFlow(f));
+      bDel.addEventListener('click', () => deleteFileFlow(f));
 
-  ui.newFolder?.addEventListener('click', async (e)=>{
-    e.stopPropagation();
-    await openNewFolderDialog();
-  });
+      frag.appendChild(card);
+    });
+    host.innerHTML = '';
+    host.appendChild(frag);
+  }
 
-  ui.refresh?.addEventListener('click', ()=> refreshDirs(state.activeDir));
-  ui.search?.addEventListener('input', renderTree);
-  ui.targetSelect?.addEventListener('change', e=> selectDir(e.target.value));
-  ui.openUploader?.addEventListener('click', openUploader);
+  function renderList(files, host){
+    const frag = document.createDocumentFragment();
+    files.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'file-row';
+      row.innerHTML = `
+        <div class="row-thumb"><img alt="" loading="lazy"></div>
+        <div class="row-name" title="${f.name}">${f.name}</div>
+        <div class="row-actions">
+          <button class="btn xs" title="Preview"><span class="codicon codicon-eye"></span></button>
+          <button class="btn xs" title="Raw"><span class="codicon codicon-link"></span></button>
+          <button class="btn xs" title="MD"><span class="codicon codicon-markdown"></span></button>
+          <button class="btn xs" title="HTML"><span class="codicon codicon-code"></span></button>
+          <button class="btn xs" title="Rename"><span class="codicon codicon-edit"></span></button>
+          <button class="btn xs danger" title="Delete"><span class="codicon codicon-trash"></span></button>
+        </div>
+      `;
+      $('img', row).src = f.download_url || f.raw || '';
 
-  // Copy buttons below Preview
-  $$('[data-copy]').forEach(btn => btn.addEventListener('click', ()=> copyText(btn.getAttribute('data-copy'))));
+      const [bPrev,bRaw,bMd,bHtml,bRen,bDel] = $$('.btn', row);
+      bPrev.addEventListener('click', () => selectFile(f));
+      bRaw.addEventListener('click', () => copyText(f.download_url || f.raw || ''));
+      bMd.addEventListener('click', () => copyText(`![${f.name}](${f.download_url || f.raw})`));
+      bHtml.addEventListener('click', () => copyText(`<img src="${f.download_url || f.raw}" alt="${f.name}">`));
+      bRen.addEventListener('click', () => renameFileFlow(f));
+      bDel.addEventListener('click', () => deleteFileFlow(f));
 
-  // After uploads complete from upload window
-  window.api?.onUploaded?.(()=> refreshDirs(state.activeDir));
-}
+      frag.appendChild(row);
+    });
+    host.innerHTML = '';
+    host.appendChild(frag);
+  }
 
-// ---------------- Init ----------------
-(async function init(){
-  try{
-    window.Settings?.init?.();
-    wireCore();
-    if (!window.api){ toast('Preload bridge not loaded (window.api missing).', false); return; }
-    await window.Settings.prefill();
-    setViewMode(state.viewMode);
-    await refreshDirs();
-  }catch(e){ console.warn('Init warning:', e?.message || e); }
-  setPreview(null);
+  async function deleteFileFlow(file){
+    if (!confirm(`Delete "${file.name}"?`)) return;
+    try{
+      await GH.deleteFile(file.path);
+      toast('Deleted');
+      await rebuildFiles();
+      // clear preview if it was this one
+      if (state.selected?.path === file.path) clearPreview();
+    }catch(e){
+      console.error(e);
+      toast(e.message || 'Delete failed', false);
+    }
+  }
+
+  async function renameFileFlow(file){
+    const dot = file.name.lastIndexOf('.');
+    const base = dot>0 ? file.name.slice(0,dot) : file.name;
+    const ext  = dot>0 ? file.name.slice(dot)  : '';
+    const newName = await promptNice('Rename file', 'Enter new file name', { value: base + ext });
+    if (!newName || newName === file.name) return;
+
+    // build new path within same folder
+    const dir = (file.path || '').split('/').slice(0,-1).join('/');
+    const newPath = (dir ? dir+'/' : '') + newName;
+    try{
+      await GH.rename(file.path, newPath);
+      toast('Renamed');
+      await rebuildFiles();
+      // select renamed
+      const sel = state.files.find(x => x.path === newPath);
+      if (sel) selectFile(sel);
+    }catch(e){
+      console.error(e);
+      toast(e.message || 'Rename failed', false);
+    }
+  }
+
+  /* ---------------------- Preview panel ---------------------- */
+  function ensureMetaSection(){
+    const card = $('.preview-card');
+    if (!card) return null;
+    let meta = $('.preview-meta', card);
+    if (!meta) {
+      meta = document.createElement('div');
+      meta.className = 'preview-meta';
+      meta.innerHTML = `
+        <div class="meta-grid">
+          <div><div class="k">Name</div><div id="pv-name">—</div></div>
+          <div><div class="k">Size</div><div id="pv-size">—</div></div>
+          <div><div class="k">Dimensions</div><div id="pv-dim">—</div></div>
+          <div><div class="k">Path</div><div id="pv-path" style="word-break:break-all">—</div></div>
+        </div>
+      `;
+      card.appendChild(meta);
+    }
+    return meta;
+  }
+
+  function clearPreview(){
+    $('#preview-img').style.display = 'none';
+    $('#preview-empty').style.display = 'block';
+    $('#btn-open-raw')?.setAttribute('disabled','true');
+    ['#link-raw','#link-md','#link-html','#link-blob'].forEach(s => $(s).value='');
+    $('#pv-name') && ($('#pv-name').textContent='—');
+    $('#pv-size') && ($('#pv-size').textContent='—');
+    $('#pv-dim')  && ($('#pv-dim').textContent='—');
+    $('#pv-path') && ($('#pv-path').textContent='—');
+  }
+
+  function selectFile(file){
+    ensureMetaSection();
+
+    const img = $('#preview-img');
+    const empty = $('#preview-empty');
+    const openRaw = $('#btn-open-raw');
+
+    const raw = file.download_url || file.raw || '';
+    const blob = file.html_url || file.blob || (raw ? raw.replace('raw.githubusercontent.com','github.com').replace(/\/([^/]+)$/, '/blob/$1') : '');
+
+    $('#link-raw').value = raw;
+    $('#link-md').value  = `![${file.name}](${raw})`;
+    $('#link-html').value= `<img src="${raw}" alt="${file.name}">`;
+    $('#link-blob').value= blob;
+
+    $('#pv-name') && ($('#pv-name').textContent = file.name || '—');
+    $('#pv-size') && ($('#pv-size').textContent = fmtBytes(file.size));
+    $('#pv-path') && ($('#pv-path').textContent = file.path || '—');
+    $('#pv-dim')  && ($('#pv-dim').textContent = '—');
+
+    img.onload = () => {
+      img.style.display = 'block';
+      empty.style.display = 'none';
+      $('#pv-dim') && ($('#pv-dim').textContent = `${img.naturalWidth} × ${img.naturalHeight}`);
+    };
+    img.onerror = () => { img.style.display='none'; empty.style.display='block'; };
+    img.src = raw;
+
+    if (openRaw){
+      openRaw.removeAttribute('disabled');
+      openRaw.onclick = () => window.open(raw, '_blank', 'noreferrer');
+    }
+
+    // copy buttons near inputs
+    $$('[data-copy]').forEach(btn => {
+      const inp = $(btn.getAttribute('data-copy'));
+      btn.onclick = () => copyText(inp?.value || '');
+    });
+
+    state.selected = file;
+  }
+
+  /* ---------------------- small modal prompt ---------------------- */
+  function promptNice(title, subtitle, { value='', placeholder='' } = {}){
+    return new Promise(resolve => {
+      const dlg = document.createElement('dialog');
+      dlg.className = 'modal';
+      dlg.innerHTML = `
+        <form method="dialog" class="modal-card" style="max-width:520px">
+          <div class="dialog-titlebar modal-titlebar">
+            <div class="dtb-left"><span class="codicon codicon-edit"></span></div>
+            <div class="dtb-center"><span class="about-window-title">${title}</span></div>
+            <div class="dtb-right"><button type="button" class="tb-btn tb-close"><span class="codicon codicon-close"></span></button></div>
+          </div>
+          <section class="modal-body">
+            <div class="field">
+              <label>${subtitle || ''}</label>
+              <input id="pnv" type="text" placeholder="${placeholder}" value="${value}">
+            </div>
+          </section>
+          <footer class="modal-foot">
+            <div class="spacer"></div>
+            <button class="btn ghost" value="cancel" type="button">Cancel</button>
+            <button class="btn primary" value="ok" type="submit">OK</button>
+          </footer>
+        </form>`;
+      document.body.appendChild(dlg);
+      const close = () => { dlg.close(); dlg.remove(); };
+      $('.tb-close', dlg).onclick = close;
+      $('[value="cancel"]', dlg).onclick = close;
+      dlg.addEventListener('close', () => resolve(undefined));
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+      dlg.querySelector('form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const v = $('#pnv', dlg).value.trim();
+        close();
+        resolve(v || undefined);
+      });
+      dlg.showModal();
+      $('#pnv', dlg).focus();
+      $('#pnv', dlg).select();
+    });
+  }
+
+  /* ---------------------- About dialog trigger ---------------------- */
+  function openAbout(){
+    // index.html already has #dlg-about; just open it
+    const dlg = $('#dlg-about');
+    if (!dlg) return;
+    // fill version/name/owner etc.
+    $('#app-version') && IPC.call('app:getVersion').then(v => $('#app-version').textContent = v || '');
+    $('#about-open-settings')?.addEventListener('click', () => Settings?.open?.());
+    // close button on titlebar
+    $('#about-close')?.addEventListener('click', () => dlg.close());
+    dlg.showModal();
+  }
+
+  /* ---------------------- View toggle ---------------------- */
+  function wireViewToggle(){
+    const wrap = $('#view-toggle');
+    if (!wrap) return;
+    const buttons = $$('.seg', wrap);
+    const apply = () => {
+      buttons.forEach(b => b.classList.toggle('active', b.dataset.mode === state.view));
+      localStorage.setItem('view', state.view);
+      rebuildFiles();
+    };
+    buttons.forEach(b => b.addEventListener('click', () => {
+      state.view = b.dataset.mode;
+      apply();
+    }));
+    apply();
+  }
+
+  /* ---------------------- sidebar search / toolbar buttons ----------- */
+  function wireSidebar(){
+    $('#search-folders')?.addEventListener('input', () => rebuildTree());
+    $('#btn-new-folder')?.addEventListener('click', () => newFolderFlow());
+    $('#btn-refresh')?.addEventListener('click', rebuildEverything);
+  }
+
+  /* ---------------------- global keyboard shortcuts ------------------ */
+  function wireShortcuts(){
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'u') { e.preventDefault(); IPC.call('window:open-upload'); }
+      if (e.ctrlKey && !e.shiftKey && e.key === ',') { e.preventDefault(); Settings?.open?.(); }
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'r') { e.preventDefault(); IPC.call('app:reload'); }
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'i') { e.preventDefault(); IPC.call('devtools:toggle'); }
+    });
+
+    // menu events from main
+    IPC.on?.('menu:open-settings', () => Settings?.open?.());
+    IPC.on?.('menu:open-uploader', () => IPC.call('window:open-upload'));
+    IPC.on?.('menu:open-about', openAbout);
+    IPC.on?.('upload:completed', () => rebuildFiles());
+  }
+
+  /* ---------------------- init everything ---------------------- */
+  async function rebuildEverything(){
+    await rebuildTree();
+    await rebuildFiles();
+    ensureMetaSection(); // make sure meta block exists once
+  }
+
+  async function init(){
+    wireTitlebar();
+    wireMenubar();
+    wireViewToggle();
+    wireSidebar();
+    wireShortcuts();
+    Settings?.init?.();
+
+    try { await Settings?.prefill?.(); } catch {}
+    await rebuildEverything();
+
+    // copy buttons in preview (links rows)
+    $$('[data-copy]').forEach(btn => {
+      const sel = btn.getAttribute('data-copy');
+      btn.addEventListener('click', () => {
+        const el = $(sel);
+        if (el) copyText(el.value || '');
+      });
+    });
+  }
+
+  // kick off
+  init();
 })();

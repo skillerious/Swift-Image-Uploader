@@ -1,200 +1,203 @@
-const $ = (s, c=document)=>c.querySelector(s);
-const $$ = (s, c=document)=>Array.from(c.querySelectorAll(s));
+/* upload.js — uploader window */
+
+const $  = (s, c=document) => c.querySelector(s);
+const $$ = (s, c=document) => Array.from(c.querySelectorAll(s));
 
 const ui = {
-  titlebar: $('#titlebar'),
-  dropzone: $('#dropzone'),
-  browse: $('#btn-browse'),
-  targetSelect: $('#target-folder'),
-  concurrency: $('#concurrency'),
-  upload: $('#btn-upload'),
-  queueList: $('#queue-list'),
-  toast: $('#toast'),
-  close: $('#win-close')
+  close:   $('#up-close'),
+  dz:      $('#dropzone'),
+  browse:  $('#btn-browse'),
+  input:   $('#file-input'),
+
+  target:  $('#u-target-folder'),
+  threads: $('#u-threads'),
+  start:   $('#u-start'),
+
+  list:    $('#u-list'),
+  empty:   $('#queue-empty'),
 };
 
-let queue = []; // items: { id, name, size, dataURL, base64, status, progress, error }
-let active = 0;
-let MAX_CONCURRENCY = parseInt(ui.concurrency.value, 10);
+const state = {
+  queue: [],
+  running: 0,
+  nextId: 1
+};
 
-// ---------- helpers ----------
-function toast(msg, ok=true){
-  ui.toast.textContent = msg;
-  ui.toast.style.borderColor = ok ? 'var(--border)' : 'var(--danger)';
-  ui.toast.style.display = 'block';
-  clearTimeout(ui.toast._t);
-  ui.toast._t = setTimeout(()=> ui.toast.style.display='none', 2400);
-}
-function kb(v){ return (v/1024).toFixed(1) + ' KB'; }
-function genId(){ return Math.random().toString(36).slice(2,9); }
+const ALLOWED = /\.(png|jpe?g|gif|bmp|webp|tiff?|svg)$/i;
 
-// ---------- queue UI ----------
-function mkItemEl(item){
-  const li = document.createElement('li');
-  li.className = 'qi';
-  li.dataset.id = item.id;
-  li.innerHTML = `
-    <div class="thumb"><img src="${item.dataURL}"></div>
-    <div>
-      <div class="name">${item.name}</div>
-      <div class="meta">${kb(item.size)}</div>
-      <div class="progress"><div class="bar" style="width:${item.progress||0}%"></div></div>
-      <div class="status">${item.status || 'queued'}</div>
-    </div>
-    <div class="right">
-      <button class="btn xs ghost" data-act="remove" title="Remove"><span class="codicon codicon-trash"></span></button>
-    </div>
-  `;
-  li.querySelector('[data-act="remove"]').addEventListener('click', () => removeFromQueue(item.id));
-  return li;
+const fmtSize = bytes => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes/1024).toFixed(1)} KB` : `${(bytes/1048576).toFixed(1)} MB`;
+
+function setEmptyVisible(show){ ui.empty.style.display = show ? 'flex' : 'none'; }
+function toast(text){
+  try { const t = window.opener?.document?.getElementById('toast'); if (t){ t.textContent = text; t.style.display='block'; setTimeout(()=>t.style.display='none',2000); } } catch {}
 }
+
+// render queue
 function renderQueue(){
-  ui.queueList.innerHTML = '';
-  queue.forEach(item => ui.queueList.appendChild(mkItemEl(item)));
-}
-function updateItemProgress(id, pct, status){
-  const li = ui.queueList.querySelector(`.qi[data-id="${id}"]`);
-  if (!li) return;
-  const bar = li.querySelector('.bar');
-  const st = li.querySelector('.status');
-  if (typeof pct === 'number') bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
-  if (status) st.textContent = status;
-}
-function removeFromQueue(id){
-  const idx = queue.findIndex(q => q.id === id);
-  if (idx === -1) return;
-  // don't allow removing items actively uploading
-  if (queue[idx].status === 'uploading') return toast('Wait for upload to finish or pause (not implemented).', false);
-  queue.splice(idx,1);
-  renderQueue();
-}
+  ui.list.innerHTML = '';
+  setEmptyVisible(state.queue.length === 0);
 
-// ---------- selecting / preparing files ----------
-function acceptFiles(fileList){
-  const files = Array.from(fileList).filter(f => /(\.png|\.jpe?g|\.webp|\.gif|\.bmp|\.tiff?|\.svg)$/i.test(f.name));
-  if (!files.length) return;
-  files.forEach((file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataURL = reader.result;
-      const base64 = String(dataURL).split(',')[1];
-      queue.push({ id: genId(), name: file.name, size: file.size, dataURL, base64, status: 'queued', progress: 0 });
-      renderQueue();
-    };
-    reader.readAsDataURL(file);
-  });
-}
+  for (const item of state.queue){
+    const li = document.createElement('li');
+    li.className = 'qi';
+    li.dataset.id = item.id;
+    li.innerHTML = `
+      <div class="thumb"><span class="codicon codicon-file-media"></span></div>
+      <div class="meta">
+        <div class="name" title="${item.name}">${item.name}</div>
+        <div class="sub">${fmtSize(item.size)} • ${item.type || 'image'}</div>
+        <div class="status"><span class="chip st-queued" data-chip>Queued</span></div>
+        <div class="progress"><div class="bar" style="width:0%"></div></div>
+        <div class="links" hidden>
+          <input class="out-url" readonly />
+          <button class="btn xs ghost" data-copy title="Copy link"><span class="codicon codicon-clippy"></span></button>
+          <a class="btn xs ghost" data-open target="_blank" rel="noreferrer" title="Open"><span class="codicon codicon-link-external"></span></a>
+        </div>
+      </div>
+      <div class="right">
+        <button class="btn xs ghost" data-remove title="Remove"><span class="codicon codicon-trash"></span></button>
+        <button class="btn xs ghost" data-retry disabled title="Retry"><span class="codicon codicon-debug-restart"></span></button>
+      </div>
+    `;
 
-// ---------- threads / uploads ----------
-function setConcurrency(v){
-  MAX_CONCURRENCY = parseInt(v,10) || 3;
-  pump();
-}
-
-async function startUpload(item){
-  active++;
-  item.status = 'uploading';
-  updateItemProgress(item.id, 5, 'preparing…');
-
-  // progress animation while waiting for network (fake but smooth)
-  let pct = 5;
-  const t = setInterval(() => {
-    pct = Math.min(90, pct + Math.random()*4 + 1);
-    updateItemProgress(item.id, pct);
-  }, 180);
-
-  try{
-    const target = ui.targetSelect.value || '';
-    const res = await window.api.upload({
-      targetDir: target,
-      filename: item.name,
-      base64Content: item.base64,
-      commitMessage: `feat: upload ${item.name}`
-    });
-    clearInterval(t);
-    item.status = 'done';
-    item.progress = 100;
-    item.result = res;
-    updateItemProgress(item.id, 100, 'done');
-  }catch(e){
-    clearInterval(t);
-    console.error(e);
-    item.status = 'error';
-    item.error = e.message || 'Upload failed';
-    updateItemProgress(item.id, 100, `error: ${item.error}`);
-  }finally{
-    active--;
-    // when all done, tell main window to refresh
-    if (queue.every(q => q.status !== 'uploading' && q.status !== 'queued')) {
-      window.api.notifyUploaded?.();
+    // preview thumb
+    const thumb = li.querySelector('.thumb');
+    const icon  = thumb.querySelector('.codicon');
+    if (item.file && item.file.type !== 'image/svg+xml'){
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => { thumb.innerHTML=''; thumb.appendChild(img); };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(item.file);
+    } else {
+      icon.style.opacity = '.7';
     }
+
+    li.querySelector('[data-remove]').addEventListener('click', () => removeItem(item.id));
+    li.querySelector('[data-retry]').addEventListener('click', () => retryItem(item.id));
+    li.querySelector('[data-copy]').addEventListener('click', () => {
+      const val = li.querySelector('.out-url').value || '';
+      if (val) { window.api?.copyText?.(val); toast('Copied link.'); }
+    });
+
+    ui.list.appendChild(li);
+  }
+}
+
+function updateItemUI(id, {status, progress, link}){
+  const li = ui.list.querySelector(`.qi[data-id="${id}"]`);
+  if (!li) return;
+  if (progress != null) li.querySelector('.bar').style.width = Math.max(1, Math.min(100, progress)) + '%';
+  if (status){
+    const chip = li.querySelector('[data-chip]');
+    chip.className = 'chip ' + ({ queued:'st-queued', uploading:'st-uploading', done:'st-done', error:'st-error' }[status] || 'st-queued');
+    chip.textContent = ({ queued:'Queued', uploading:'Uploading…', done:'Uploaded', error:'Failed' }[status] || 'Queued');
+    li.querySelector('[data-retry]').disabled = (status !== 'error');
+  }
+  if (link){
+    const links = li.querySelector('.links');
+    links.hidden = false;
+    li.querySelector('.out-url').value = link.raw || '';
+    li.querySelector('[data-open]').href = link.raw || '#';
+  }
+}
+
+function removeItem(id){
+  const idx = state.queue.findIndex(q => q.id === id);
+  if (idx >= 0){ state.queue.splice(idx, 1); renderQueue(); }
+}
+function retryItem(id){
+  const item = state.queue.find(q => q.id === id);
+  if (item && item.status === 'error'){
+    item.status = 'queued'; item.progress = 0;
+    updateItemUI(id, {status:'queued', progress:0});
     pump();
   }
 }
 
+// add files
+function addFiles(files){
+  const arr = Array.from(files || []).filter(f => ALLOWED.test(f.name));
+  if (!arr.length){ toast('No supported images in selection.'); return; }
+  for (const f of arr){
+    state.queue.push({ id: state.nextId++, file: f, name: f.name, size: f.size, type: f.type, status: 'queued', progress: 0 });
+  }
+  renderQueue();
+}
+
+// dropzone
+function wireDropzone(){
+  ui.dz.addEventListener('dragover', e => { e.preventDefault(); ui.dz.classList.add('dragover'); });
+  ui.dz.addEventListener('dragleave', () => ui.dz.classList.remove('dragover'));
+  ui.dz.addEventListener('drop', e => { e.preventDefault(); ui.dz.classList.remove('dragover'); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
+  ui.browse.addEventListener('click', ()=> ui.input.click());
+  ui.input.addEventListener('change', ()=> { addFiles(ui.input.files); ui.input.value = ''; });
+}
+
+// upload logic
+function readAsBase64(file, onProgress){
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(fr.error || new Error('read error'));
+    fr.onprogress = e => { if (e.lengthComputable && typeof onProgress === 'function') onProgress(Math.round(e.loaded / e.total * 100)); };
+    fr.onload = () => { const res = fr.result || ''; const base64 = String(res).split(',')[1] || ''; resolve(base64); };
+    fr.readAsDataURL(file);
+  });
+}
+async function uploadOne(item, targetDir){
+  try{
+    updateItemUI(item.id, {status:'uploading', progress:1});
+    const base64Content = await readAsBase64(item.file, p => updateItemUI(item.id, {progress:p}));
+    const link = await window.api.upload({ targetDir, filename:item.name, base64Content, commitMessage:`feat: upload ${item.name}` });
+    item.status = 'done'; item.progress = 100; item.result = link;
+    updateItemUI(item.id, {status:'done', progress:100, link});
+  }catch(err){
+    item.status = 'error';
+    updateItemUI(item.id, {status:'error'});
+    console.error('Upload failed', err);
+  }
+}
 function pump(){
-  // launch while we have capacity
-  const uploading = queue.filter(q => q.status === 'uploading').length;
-  active = uploading;
-  const pend = queue.filter(q => q.status === 'queued');
-  while (active < MAX_CONCURRENCY && pend.length){
-    const item = pend.shift();
-    startUpload(item);
+  const limit = Math.max(1, parseInt(ui.threads.value || '2', 10));
+  while (state.running < limit){
+    const next = state.queue.find(q => q.status === 'queued');
+    if (!next) break;
+    state.running++;
+    uploadOne(next, ui.target.value).finally(()=>{
+      state.running--;
+      if (!state.queue.find(q => q.status === 'queued' || q.status === 'uploading')){
+        try { window.api?.notifyUploaded?.(); } catch {}
+      }
+      pump();
+    });
   }
 }
 
-async function doUpload(){
-  if (!queue.length) return toast('Queue is empty.', false);
-  if (!ui.targetSelect.value) return toast('Pick a target folder.', false);
-  pump();
+function wireActions(){
+  ui.start.addEventListener('click', () => {
+    if (!state.queue.length){ toast('Queue is empty.'); return; }
+    pump();
+  });
+  ui.close.addEventListener('click', () => window.close());
+
+  const savedThreads = localStorage.getItem('upload_threads');
+  if (savedThreads) ui.threads.value = savedThreads;
+  ui.threads.addEventListener('change', () => localStorage.setItem('upload_threads', ui.threads.value));
 }
 
-// ---------- folders ----------
-async function refreshDirs(){
+// init
+(async function init(){
   try{
     const dirs = await window.api.listDirs();
-    ui.targetSelect.innerHTML = '';
-    for (const d of dirs) {
-      const opt = document.createElement('option'); opt.value=d; opt.textContent=d;
-      ui.targetSelect.appendChild(opt);
-    }
-    const def = window.localStorage.getItem('defSelect') || dirs[0] || '';
-    if (def) ui.targetSelect.value = def;
-  }catch(e){ console.error(e); toast(e.message || 'Failed to load directories', false); }
-}
+    ui.target.innerHTML = '';
+    dirs.forEach(d => { const opt = document.createElement('option'); opt.value = d; opt.textContent = d; ui.target.appendChild(opt); });
+    const pick = localStorage.getItem('u_target_folder');
+    if (pick && dirs.includes(pick)) ui.target.value = pick;
+    ui.target.addEventListener('change', () => localStorage.setItem('u_target_folder', ui.target.value));
+  }catch(e){ console.warn('List dirs failed', e); }
 
-// ---------- wiring ----------
-function wire(){
-  // titlebar close
-  ui.close?.addEventListener('click', () => window.close());
-  // double click maximize/restore for draggable area
-  ui.titlebar?.addEventListener('dblclick', () => window.api?.winMaximize?.());
-
-  // drag & drop
-  ['dragenter','dragover','dragleave','drop'].forEach(eName => {
-    document.addEventListener(eName, e => { e.preventDefault(); e.stopPropagation(); });
-  });
-  ['dragenter','dragover'].forEach(eName => {
-    ui.dropzone.addEventListener(eName, () => ui.dropzone.classList.add('dragover'));
-  });
-  ['dragleave','drop'].forEach(eName => {
-    ui.dropzone.addEventListener(eName, () => ui.dropzone.classList.remove('dragover'));
-  });
-  ui.dropzone.addEventListener('drop', (e) => acceptFiles(e.dataTransfer.files || []));
-
-  // browse
-  ui.browse.addEventListener('click', () => {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept='image/*'; inp.multiple = true;
-    inp.addEventListener('change', () => acceptFiles(inp.files));
-    inp.click();
-  });
-
-  ui.upload.addEventListener('click', doUpload);
-  ui.concurrency.addEventListener('change', e => setConcurrency(e.target.value));
-}
-
-(async function init(){
-  wire();
-  await refreshDirs();
+  wireDropzone();
+  wireActions();
 })();
