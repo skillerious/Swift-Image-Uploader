@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en" data-vscode-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <title>Swift Image Uploader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self';
+    style-src 'self' 'unsafe-inline' https://microsoft.github.io;
+    font-src 'self' https://microsoft.github.io data:;
+    img-src 'self' data: blob: https://raw.githubusercontent.com https://avatars.githubusercontent.com;
+    connect-src 'self' https://api.github.com https://raw.githubusercontent.com;
+    frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';
+  ">
+  <link rel="stylesheet" href="https://microsoft.github.io/vscode-codicons/dist/codicon.css">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Titlebar -->
+  <div id="titlebar" class="titlebar drag">
+    <nav class="menubar no-drag" role="menubar" aria-label="Application Menu">
+      <div class="menu" data-menu="file">
+        <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">File</button>
+        <div class="menu-panel" role="menu">
+          <button class="menu-item" id="m-file-upload" type="button">Upload…</button>
+          <button class="menu-item" id="m-file-settings" type="button">Settings…</button>
+          <button class="menu-item" id="m-file-refresh" type="button">Refresh Folders</button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" id="m-file-exit" type="button">Exit</button>
+        </div>
+      </div>
+      <div class="menu" data-menu="view">
+        <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">View</button>
+        <div class="menu-panel" role="menu">
+          <button class="menu-item" id="m-view-reload" type="button">Reload</button>
+          <button class="menu-item" id="m-view-devtools" type="button">Toggle Developer Tools</button>
+        </div>
+      </div>
+      <div class="menu" data-menu="help">
+        <button class="menu-btn" aria-haspopup="true" aria-expanded="false" type="button">Help</button>
+        <div class="menu-panel" role="menu">
+          <button class="menu-item" id="m-help-about" type="button">About</button>
+        </div>
+      </div>
+    </nav>
+
+    <div class="tb-center drag">
+      <span class="codicon codicon-cloud-upload app-icon"></span>
+      <span class="app-title">Swift Image Uploader</span>
+    </div>
+
+    <div class="tb-right no-drag">
+      <button id="win-min" class="win-btn" title="Minimize" type="button"><span class="codicon codicon-chrome-minimize"></span></button>
+      <button id="win-max" class="win-btn" title="Maximize" type="button"><span id="win-max-ic" class="codicon codicon-chrome-maximize"></span></button>
+      <button id="win-close" class="win-btn close" title="Close" type="button"><span class="codicon codicon-chrome-close"></span></button>
+    </div>
+  </div>
+
+  <main class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="panel-header">
+        <div class="field with-icon">
+          <span class="codicon codicon-search"></span>
+          <input id="search-folders" type="text" placeholder="Search folders…" />
+        </div>
+        <div class="panel-actions">
+          <button id="btn-new-folder" class="btn xs" title="New folder" type="button"><span class="codicon codicon-new-folder"></span></button>
+          <button id="btn-refresh" class="btn xs" title="Refresh" type="button"><span class="codicon codicon-refresh"></span></button>
+        </div>
+      </div>
+      <nav id="folder-tree" class="tree"></nav>
+    </aside>
+
+<!-- Center -->
+<section class="center">
+  <div class="files-toolbar">
+    <div class="left">
+      <h2 class="section-title"><span class="codicon codicon-root-folder"></span> Files in folder</h2>
+    </div>
+    <div class="right">
+      <div class="segmented" id="view-toggle" role="tablist" aria-label="View mode">
+        <button class="seg active" data-mode="grid" type="button" role="tab" aria-selected="true" title="Grid view">
+          <!-- always-visible CSS grid icon -->
+          <span class="grid-ico"><i></i><i></i><i></i><i></i></span>
+        </button>
+        <button class="seg" data-mode="list" type="button" role="tab" aria-selected="false" title="List view">
+          <span class="codicon codicon-list-flat"></span>
+        </button>
+      </div>
+
+      <select id="target-folder" title="Active folder"></select>
+      <button id="btn-open-uploader" class="btn primary" type="button">
+        <span class="codicon codicon-cloud-upload"></span> Upload…
+      </button>
+    </div>
+  </div>
+
+  <div class="files-grid" id="files-grid"></div>
+</section>
+
+
+    <!-- Right -->
+    <aside class="preview">
+      <div class="preview-card">
+        <div class="preview-head">
+          <h3>Preview</h3>
+          <button id="btn-open-raw" class="btn xs ghost" title="Open raw in browser" disabled type="button">
+            <span class="codicon codicon-link-external"></span>
+          </button>
+        </div>
+        <div class="preview-body">
+          <img id="preview-img" alt="Preview" />
+          <div id="preview-empty" class="placeholder">No image selected</div>
+        </div>
+        <div class="links">
+          <div class="link-row">
+            <label>Raw</label>
+            <input id="link-raw" readonly>
+            <button data-copy="#link-raw" class="btn xs ghost" type="button"><span class="codicon codicon-clippy"></span></button>
+          </div>
+          <div class="link-row">
+            <label>Markdown</label>
+            <input id="link-md" readonly>
+            <button data-copy="#link-md" class="btn xs ghost" type="button"><span class="codicon codicon-clippy"></span></button>
+          </div>
+          <div class="link-row">
+            <label>HTML</label>
+            <input id="link-html" readonly>
+            <button data-copy="#link-html" class="btn xs ghost" type="button"><span class="codicon codicon-clippy"></span></button>
+          </div>
+          <div class="link-row">
+            <label>Blob</label>
+            <input id="link-blob" readonly>
+            <button data-copy="#link-blob" class="btn xs ghost" type="button"><span class="codicon codicon-clippy"></span></button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Settings (tabs handled by settings.js) -->
+  <dialog id="dlg-settings" class="modal">
+    <form method="dialog" class="modal-card">
+      <header class="modal-head">
+        <h3><span class="codicon codicon-gear"></span> Settings</h3>
+      </header>
+      <section class="modal-body">
+        <div class="tabs">
+          <div class="tab-bar" role="tablist">
+            <button class="tab active" data-tab="github" role="tab" type="button">GitHub</button>
+            <button class="tab" data-tab="commit" role="tab" type="button">Commit & Naming</button>
+            <button class="tab" data-tab="app" role="tab" type="button">App & UI</button>
+          </div>
+          <div class="tab-panels">
+            <div class="tab-panel active" data-panel="github">
+              <div class="grid two">
+                <div class="field">
+                  <label>GitHub Token</label>
+                  <input id="set-token" type="password" placeholder="ghp_..." autocomplete="off">
+                  <small>Use fine-grained token with <code>Contents: Read/Write</code>.</small>
+                </div>
+                <div class="field">
+                  <label>Root Folder</label>
+                  <input id="set-root" type="text" value="images">
+                </div>
+              </div>
+              <div class="grid two">
+                <div class="field"><label>Owner</label><input id="set-owner" type="text" placeholder="skillerious"></div>
+                <div class="field"><label>Repo</label><input id="set-repo" type="text" placeholder="SwiftImageHost"></div>
+              </div>
+              <div class="grid two">
+                <div class="field"><label>Branch</label><input id="set-branch" type="text" value="main"></div>
+                <div class="field"><label>Default Folder in Selector</label><input id="set-default-select" type="text" placeholder="images"><small>Optional: preselect on start.</small></div>
+              </div>
+            </div>
+            <div class="tab-panel" data-panel="commit">
+              <div class="grid two">
+                <div class="field"><label>Committer Name</label><input id="set-name" type="text" placeholder="Swift Image Host"></div>
+                <div class="field"><label>Committer Email</label><input id="set-email" type="email" placeholder="noreply@example.com"></div>
+              </div>
+              <div class="grid">
+                <div class="field"><label>Auto-rename rule</label><input id="set-rename" type="text" placeholder="{base}-{n}{ext}">
+                  <small>Vars: <code>{base}</code>, <code>{ext}</code>, <code>{n}</code>, <code>{yyyy}</code>, <code>{mm}</code>, <code>{dd}</code>.</small>
+                </div>
+              </div>
+            </div>
+            <div class="tab-panel" data-panel="app">
+              <div class="grid two">
+                <div class="field"><label>Theme</label>
+                  <select id="set-theme"><option value="dark">Dark (default)</option><option value="light">Light</option><option value="system">System</option></select>
+                </div>
+                <div class="field"><label>Open uploader</label>
+                  <select id="set-upload-open"><option value="window">In new window</option><option value="modal">Modal</option></select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <footer class="modal-foot">
+        <button id="btn-test" type="button" class="btn"><span class="codicon codicon-debug-start"></span> Test</button>
+        <div class="spacer"></div>
+        <button id="btn-cancel" value="cancel" class="btn ghost" type="button">Cancel</button>
+        <button id="btn-save" value="ok" class="btn primary" type="button">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+<!-- Enhanced About Modal -->
+<dialog id="dlg-about" class="modal">
+  <form method="dialog" class="modal-card">
+    <!-- VS Code–style titlebar (not draggable) -->
+    <div class="dialog-titlebar modal-titlebar">
+      <div class="dtb-left">
+        <span class="codicon codicon-cloud-upload app-icon"></span>
+        <span class="app-title">About</span>
+      </div>
+      <div class="dtb-center">
+        <span class="about-window-title">Swift Image Uploader</span>
+      </div>
+      <div class="dtb-right">
+        <button id="about-close" type="button" class="tb-btn tb-close" title="Close About" aria-label="Close About">
+          <span class="codicon codicon-close"></span>
+        </button>
+      </div>
+    </div>
+
+    <section class="modal-body">
+      <div class="about-header">
+        <span class="codicon codicon-cloud-upload"></span>
+        <div>
+          <h2 class="about-title">Swift Image Uploader</h2>
+          <div class="about-sub">
+            VS Code–styled GitHub image uploader • Version <span id="app-version"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary chips -->
+      <div class="about-chips">
+        <span class="chip"><span class="codicon codicon-github-inverted"></span> GitHub</span>
+        <span class="chip"><span class="codicon codicon-paintcan"></span> VS Code theme</span>
+        <span class="chip"><span class="codicon codicon-cloud-upload"></span> Image hosting</span>
+      </div>
+
+      <!-- Details -->
+      <div class="about-grid">
+        <div>
+          <label>Owner</label>
+          <span id="about-owner">—</span>
+        </div>
+        <div>
+          <label>Repo</label>
+          <span id="about-repo">—</span>
+        </div>
+        <div>
+          <label>Branch</label>
+          <span id="about-branch">—</span>
+        </div>
+        <div>
+          <label>Root folder</label>
+          <span id="about-root">—</span>
+        </div>
+      </div>
+
+      <!-- Developer -->
+      <div class="about-dev">
+        <strong>Developer</strong>
+        <div>
+          <a href="https://github.com/skillerious" target="_blank" rel="noreferrer">
+            Robin Doak <code>@skillerious</code>
+          </a>
+        </div>
+        <small>Open source • Desktop Python enthusiast</small>
+      </div>
+
+      <!-- Quick actions -->
+      <div class="about-actions">
+        <a class="btn ghost" href="https://github.com/skillerious" target="_blank" rel="noreferrer">
+          <span class="codicon codicon-person"></span> GitHub Profile
+        </a>
+        <button type="button" class="btn" id="about-open-settings">
+          <span class="codicon codicon-gear"></span> Open Settings
+        </button>
+      </div>
+
+      <!-- Shortcuts -->
+      <div class="about-shortcuts">
+        <strong>Shortcuts</strong>
+        <ul>
+          <li><code>Ctrl+U</code> — Open Uploader</li>
+          <li><code>Ctrl+,</code> — Settings</li>
+          <li><code>Ctrl+R</code> — Reload</li>
+          <li><code>Ctrl+Shift+I</code> — Toggle Developer Tools</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer class="modal-foot">
+      <div class="spacer"></div>
+      <button class="btn primary" type="submit">Close</button>
+    </footer>
+  </form>
+</dialog>
+
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="settings.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

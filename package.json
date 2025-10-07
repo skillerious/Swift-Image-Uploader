@@ -1,0 +1,19 @@
+{
+  "name": "swift-image-uploader",
+  "version": "1.0.0",
+  "description": "VS Code styled Electron uploader for GitHub-hosted images",
+  "main": "main.js",
+  "type": "module",
+  "author": "Robin Doak",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.4.0"
+  },
+  "dependencies": {
+    "electron-store": "^9.0.0"
+  }
+}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en" data-vscode-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <title>Uploader — Swift Image Uploader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self';
+    style-src 'self' 'unsafe-inline' https://microsoft.github.io;
+    font-src 'self' https://microsoft.github.io data:;
+    img-src 'self' data: blob:;
+    connect-src 'self' https://api.github.com https://raw.githubusercontent.com;
+    frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';
+  ">
+  <link rel="stylesheet" href="https://microsoft.github.io/vscode-codicons/dist/codicon.css">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Titlebar -->
+  <div id="titlebar" class="titlebar drag">
+    <div class="menubar no-drag">
+      <span class="codicon codicon-cloud-upload app-icon" style="padding:0 8px;"></span>
+      <span class="app-title">Uploader</span>
+    </div>
+    <div class="tb-center drag"></div>
+    <div class="tb-right no-drag">
+      <button id="win-close" class="win-btn close" title="Close" type="button">
+        <span class="codicon codicon-chrome-close"></span>
+      </button>
+    </div>
+  </div>
+
+  <main class="upload-layout">
+    <section class="upload-panel">
+      <div id="dropzone" class="dropzone" style="margin:16px;">
+        <div class="dz-inner">
+          <span class="codicon codicon-cloud-upload"></span>
+          <p>Drop images here or <button id="btn-browse" class="link" type="button">browse</button></p>
+          <small>Supported: PNG, JPG, JPEG, WEBP, GIF, BMP, TIFF, SVG</small>
+        </div>
+      </div>
+
+      <div class="queue">
+        <div class="queue-header">
+          <h2>Upload Queue</h2>
+          <div class="queue-actions">
+            <label class="sr-only" for="target-folder">Folder</label>
+            <select id="target-folder" title="Upload to folder"></select>
+
+            <label class="sr-only" for="concurrency">Threads</label>
+            <select id="concurrency" title="Concurrent uploads">
+              <option value="1">1 thread</option>
+              <option value="2">2 threads</option>
+              <option value="3" selected>3 threads</option>
+              <option value="5">5 threads</option>
+            </select>
+
+            <button id="btn-upload" class="btn primary" type="button">
+              <span class="codicon codicon-upload"></span> Upload
+            </button>
+          </div>
+        </div>
+        <ul id="queue-list" class="list"></ul>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="upload.js"></script>
+</body>
+</html>
