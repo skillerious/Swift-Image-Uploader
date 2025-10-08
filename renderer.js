@@ -9,9 +9,7 @@
   /* ---------------------- robust IPC bridge --------------------- */
   const IPC = {
     async call(channel, payload){
-      // Prefer generic invoke if preload exposes it.
       if (typeof window.api?.invoke === 'function') return window.api.invoke(channel, payload);
-      // Fallback to named helpers if present (e.g., window.api.getSettings()).
       if (typeof window.api?.[channel] === 'function') return window.api[channel](payload);
       throw new Error(`IPC bridge missing for "${channel}"`);
     },
@@ -24,7 +22,7 @@
   const IMG_EXTS = ['.png','.jpg','.jpeg','.webp','.gif','.bmp','.tiff','.svg','.avif'];
   const isImageName = (name='') => {
     const n = String(name).toLowerCase();
-    if (!n || n[0] === '.') return false;           // hide .gitkeep and hidden files
+    if (!n || n[0] === '.') return false;
     return IMG_EXTS.some(ext => n.endsWith(ext));
   };
   const fmtBytes = (n) => {
@@ -36,6 +34,7 @@
     do { v /= k; i++; } while (v >= k && i < u.length-1);
     return `${v.toFixed(2)} ${u[i]}`;
   };
+  const gcd = (a,b)=>{ a=Math.abs(a||0); b=Math.abs(b||0); while(b){ const t=b; b=a%b; a=t; } return a||1; };
   const toast = (msg, ok=true) => {
     const el = $('#toast');
     if (!el) return;
@@ -47,7 +46,6 @@
   };
   const copyText = async (text) => {
     try {
-      // Prefer secure ipc clipboard to avoid navigator permission issues
       await IPC.call('clipboard:write', String(text ?? ''));
       toast('Copied to clipboard');
     } catch {
@@ -59,6 +57,51 @@
       }
     }
   };
+
+  /* ---------- Palette extraction (fast quantization) ---------- */
+  function rgbToHex(r,g,b){
+    const to = (v)=> v.toString(16).padStart(2,'0');
+    return `#${to(r)}${to(g)}${to(b)}`.toUpperCase();
+  }
+  function dist(c1, c2){
+    const dr=c1[0]-c2[0], dg=c1[1]-c2[1], db=c1[2]-c2[2];
+    return Math.sqrt(dr*dr+dg*dg+db*db);
+  }
+  function extractPaletteFromImage(img, count=6){
+    try{
+      const w = Math.max(1, Math.min(64, img.naturalWidth || 1));
+      const h = Math.max(1, Math.min(64, img.naturalHeight || 1));
+      const cvs = document.createElement('canvas');
+      cvs.width = w; cvs.height = h;
+      const ctx = cvs.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = ctx.getImageData(0,0,w,h).data;
+
+      // 4-bit per channel quantization (4096 buckets)
+      const buckets = new Map();
+      for (let i=0;i<data.length;i+=4){
+        const a = data[i+3];
+        if (a < 64) continue; // skip transparent
+        let r = data[i]>>4, g = data[i+1]>>4, b = data[i+2]>>4;
+        const key = (r<<8)|(g<<4)|b;
+        buckets.set(key, (buckets.get(key)||0)+1);
+      }
+      const sorted = [...buckets.entries()].sort((a,b)=>b[1]-a[1]);
+
+      const colors=[];
+      for (let k=0; k<sorted.length && colors.length<count; k++){
+        const key = sorted[k][0];
+        const r=((key>>8)&0xF)*17, g=((key>>4)&0xF)*17, b=(key&0xF)*17;
+        // Prevent near-duplicates
+        if (colors.some(c => dist(c,[r,g,b]) < 24)) continue;
+        colors.push([r,g,b]);
+      }
+      if (!colors.length) colors.push([221,221,221]);
+      return colors.map(c=>rgbToHex(c[0],c[1],c[2]));
+    }catch{
+      return ['#DDDDDD'];
+    }
+  }
 
   /* ---------------------- app state ---------------------- */
   const state = {
@@ -80,7 +123,6 @@
     btnMax?.addEventListener('click', () => IPC.call('win:maximize'));
     btnClose?.addEventListener('click', () => IPC.call('win:close'));
 
-    // reflect maximized state
     const setMaxState = (isMax) => {
       if (!icMax) return;
       icMax.classList.remove('codicon-chrome-maximize','codicon-chrome-restore');
@@ -92,7 +134,6 @@
     } catch {}
     IPC.on?.('win:max-state', (_e, isMax) => setMaxState(!!isMax));
 
-    // quick toolbar buttons
     $('#tb-settings')?.addEventListener('click', () => Settings?.open?.());
     $('#tb-about')?.addEventListener('click', openAbout);
   }
@@ -107,12 +148,10 @@
         e.stopPropagation();
         menus.forEach(x => x.classList.toggle('open', x === m ? !m.classList.contains('open') : false));
       });
-      // keep menus keyboard-friendly: make all buttons type=button
       $$('.menu-item', panel).forEach(b => b.setAttribute('type','button'));
     });
     document.addEventListener('click', () => menus.forEach(m => m.classList.remove('open')));
 
-    // commands
     $('#m-file-upload')?.addEventListener('click', () => IPC.call('window:open-upload'));
     $('#m-file-settings')?.addEventListener('click', () => Settings?.open?.());
     $('#m-file-refresh')?.addEventListener('click', rebuildEverything);
@@ -157,9 +196,7 @@
     treeEl.innerHTML = '<div class="placeholder">Loading folders…</div>';
 
     const dirs = await GH.listDirs();
-    // persistent store
     state.folders = dirs.slice().sort((a,b) => a.localeCompare(b));
-    // filter to only within root shown by settings (GH already does this in main)
     const filterText = ($('#search-folders')?.value || '').trim().toLowerCase();
 
     const frag = document.createDocumentFragment();
@@ -169,10 +206,7 @@
       const node = document.createElement('div');
       node.className = 'node';
       node.dataset.path = d;
-
-      // indent using left padding, keep icons aligned
       node.style.paddingLeft = `${6 + depth * 14}px`;
-
       node.innerHTML = `
         <span class="codicon codicon-root-folder"></span>
         <span class="label" title="${d}">${d}</span>
@@ -188,13 +222,11 @@
         e.preventDefault();
         showFolderContextMenu(e.pageX, e.pageY, d);
       });
-
       frag.appendChild(node);
     });
     treeEl.innerHTML = '';
     treeEl.appendChild(frag);
 
-    // select default
     if (!state.currentFolder) {
       const def = Settings?.getDefaultSelect?.() || Settings?.getRoot?.() || state.folders[0] || '';
       const found = $(`.tree .node[data-path="${CSS.escape(def)}"]`) || $('.tree .node');
@@ -252,7 +284,6 @@
     const name = await promptNice('Rename folder', `Rename “${oldPath}” to:`, { value: curr || '' });
     if (!name || name === curr) return;
 
-    // list files and rename one by one by moving path
     try{
       const files = await GH.listFiles(oldPath);
       for (const f of files) {
@@ -262,7 +293,6 @@
       }
       toast('Folder renamed');
       await rebuildTree();
-      // reselect
       state.currentFolder = (base ? base+'/' : '') + name;
       rebuildFiles();
     }catch(e){
@@ -273,7 +303,6 @@
   async function deleteFolderFlow(path){
     if (!confirm(`Delete folder "${path}" and its files?`)) return;
     try{
-      // delete only files directly under; (recursive delete can be added similarly)
       const files = await GH.listFiles(path);
       for (const f of files) await GH.deleteFile(f.path);
       toast('Folder emptied (folder disappears once GitHub refreshes)');
@@ -291,7 +320,6 @@
     const grid = $('#files-grid');
     const sel = $('#target-folder');
 
-    // build dropdown
     sel.innerHTML = state.folders.map(f => `<option value="${f}">${f}</option>`).join('');
     if (state.currentFolder) sel.value = state.currentFolder;
     sel.onchange = () => {
@@ -300,7 +328,6 @@
       rebuildFiles();
     };
 
-    // nothing selected => empty UI
     if (!state.currentFolder) {
       grid.classList.add('empty');
       grid.innerHTML = buildEmptyState();
@@ -311,9 +338,7 @@
     grid.innerHTML = '<div class="placeholder">Loading…</div>';
 
     let files = await GH.listFiles(state.currentFolder);
-    // Filter: show only images (no .gitkeep nor any dotfiles)
     files = (files || []).filter(x => isImageName(x.name));
-
     state.files = files;
 
     if (!files.length) {
@@ -441,7 +466,6 @@
       await GH.deleteFile(file.path);
       toast('Deleted');
       await rebuildFiles();
-      // clear preview if it was this one
       if (state.selected?.path === file.path) clearPreview();
     }catch(e){
       console.error(e);
@@ -456,14 +480,12 @@
     const newName = await promptNice('Rename file', 'Enter new file name', { value: base + ext });
     if (!newName || newName === file.name) return;
 
-    // build new path within same folder
     const dir = (file.path || '').split('/').slice(0,-1).join('/');
     const newPath = (dir ? dir+'/' : '') + newName;
     try{
       await GH.rename(file.path, newPath);
       toast('Renamed');
       await rebuildFiles();
-      // select renamed
       const sel = state.files.find(x => x.path === newPath);
       if (sel) selectFile(sel);
     }catch(e){
@@ -473,6 +495,68 @@
   }
 
   /* ---------------------- Preview panel ---------------------- */
+
+  /** Ensure header becomes: <div class="title">Preview</div><div class="actions">[raw][gh]</div> */
+  function ensurePreviewHead(){
+    const head = $('.preview-head');
+    if (!head) return;
+
+    // Create structure only once
+    if (!$('.title', head) || !$('.actions', head)) {
+      head.innerHTML = `
+        <div class="title">Preview</div>
+        <div class="actions"></div>
+      `;
+    }
+
+    const actions = $('.actions', head);
+
+    // Raw button
+    let btnRaw = $('#btn-open-raw');
+    if (!btnRaw) {
+      btnRaw = document.createElement('button');
+      btnRaw.id = 'btn-open-raw';
+      btnRaw.type = 'button';
+      btnRaw.title = 'Open raw in browser';
+      btnRaw.className = 'btn xs ghost';
+      btnRaw.innerHTML = `<span class="codicon codicon-link-external"></span>`;
+      actions.appendChild(btnRaw);
+    } else if (btnRaw.parentElement !== actions) {
+      actions.appendChild(btnRaw);
+    }
+
+    // GitHub button
+    let btnGh = $('#btn-open-gh');
+    if (!btnGh) {
+      btnGh = document.createElement('button');
+      btnGh.id = 'btn-open-gh';
+      btnGh.type = 'button';
+      btnGh.title = 'Open on GitHub';
+      btnGh.className = 'btn xs ghost';
+      btnGh.innerHTML = `<span class="codicon codicon-github-inverted"></span>`;
+      actions.appendChild(btnGh);
+    }
+  }
+
+  /** Make stage wrapper stable; add palette + extended meta if missing */
+  function ensurePreviewScaffold(){
+    // Fixed stage
+    const body = $('.preview-body');
+    if (body && !$('.pv-stage', body)) {
+      const stage = document.createElement('div');
+      stage.className = 'pv-stage';
+      const img = $('#preview-img') || (() => { const i=document.createElement('img'); i.id='preview-img'; i.alt='Preview'; return i; })();
+      const ph  = $('#preview-empty') || (() => { const d=document.createElement('div'); d.id='preview-empty'; d.className='placeholder'; d.textContent='No image selected'; return d; })();
+      body.innerHTML = '';
+      stage.appendChild(img);
+      stage.appendChild(ph);
+      body.appendChild(stage);
+    }
+
+    // Meta block
+    ensureMetaSection();
+  }
+
   function ensureMetaSection(){
     const card = $('.preview-card');
     if (!card) return null;
@@ -481,11 +565,15 @@
       meta = document.createElement('div');
       meta.className = 'preview-meta';
       meta.innerHTML = `
-        <div class="meta-grid">
-          <div><div class="k">Name</div><div id="pv-name">—</div></div>
-          <div><div class="k">Size</div><div id="pv-size">—</div></div>
-          <div><div class="k">Dimensions</div><div id="pv-dim">—</div></div>
-          <div><div class="k">Path</div><div id="pv-path" style="word-break:break-all">—</div></div>
+        <div class="k" style="margin-bottom:6px;">Palette</div>
+        <div id="pv-pal" class="palette"></div>
+        <div class="meta-grid" style="margin-top:10px;">
+          <div class="k">Name</div><div id="pv-name">—</div>
+          <div class="k">Size</div><div id="pv-size">—</div>
+          <div class="k">Type</div><div id="pv-type">—</div>
+          <div class="k">Dimensions</div><div id="pv-dim">—</div>
+          <div class="k">Aspect</div><div id="pv-aspect">—</div>
+          <div class="k">Path</div><div id="pv-path" style="word-break:break-all">—</div>
         </div>
       `;
       card.appendChild(meta);
@@ -494,47 +582,82 @@
   }
 
   function clearPreview(){
+    ensurePreviewHead();
+    ensurePreviewScaffold();
+
     $('#preview-img').style.display = 'none';
-    $('#preview-empty').style.display = 'block';
+    $('#preview-empty').style.display = 'flex';
     $('#btn-open-raw')?.setAttribute('disabled','true');
+    $('#btn-open-gh')?.setAttribute('disabled','true');
     ['#link-raw','#link-md','#link-html','#link-blob'].forEach(s => $(s).value='');
+
     $('#pv-name') && ($('#pv-name').textContent='—');
     $('#pv-size') && ($('#pv-size').textContent='—');
     $('#pv-dim')  && ($('#pv-dim').textContent='—');
+    $('#pv-aspect') && ($('#pv-aspect').textContent='—');
     $('#pv-path') && ($('#pv-path').textContent='—');
+    $('#pv-type') && ($('#pv-type').textContent='—');
+    const pal = $('#pv-pal'); if (pal) pal.innerHTML = '';
   }
 
   function selectFile(file){
-    ensureMetaSection();
+    ensurePreviewHead();
+    ensurePreviewScaffold();
 
     const img = $('#preview-img');
     const empty = $('#preview-empty');
-    const openRaw = $('#btn-open-raw');
+    const btnRaw = $('#btn-open-raw');
+    const btnGh  = $('#btn-open-gh');
 
     const raw = file.download_url || file.raw || '';
     const blob = file.html_url || file.blob || (raw ? raw.replace('raw.githubusercontent.com','github.com').replace(/\/([^/]+)$/, '/blob/$1') : '');
 
-    $('#link-raw').value = raw;
-    $('#link-md').value  = `![${file.name}](${raw})`;
-    $('#link-html').value= `<img src="${raw}" alt="${file.name}">`;
-    $('#link-blob').value= blob;
+    $('#link-raw').value  = raw;
+    $('#link-md').value   = `![${file.name}](${raw})`;
+    $('#link-html').value = `<img src="${raw}" alt="${file.name}">`;
+    $('#link-blob').value = blob;
 
     $('#pv-name') && ($('#pv-name').textContent = file.name || '—');
     $('#pv-size') && ($('#pv-size').textContent = fmtBytes(file.size));
     $('#pv-path') && ($('#pv-path').textContent = file.path || '—');
+    $('#pv-type') && ($('#pv-type').textContent = (file.name?.split('.').pop() || '').toUpperCase() || '—');
     $('#pv-dim')  && ($('#pv-dim').textContent = '—');
+    $('#pv-aspect') && ($('#pv-aspect').textContent = '—');
+    const pal = $('#pv-pal'); if (pal) pal.innerHTML = '';
 
     img.onload = () => {
       img.style.display = 'block';
       empty.style.display = 'none';
-      $('#pv-dim') && ($('#pv-dim').textContent = `${img.naturalWidth} × ${img.naturalHeight}`);
+
+      const w = img.naturalWidth, h = img.naturalHeight;
+      $('#pv-dim') && ($('#pv-dim').textContent = `${w} × ${h}`);
+      const g = gcd(w,h);
+      $('#pv-aspect') && ($('#pv-aspect').textContent = `${w/g}:${h/g} (${(w/h).toFixed(3)})`);
+
+      // Palette
+      const colors = extractPaletteFromImage(img, 6);
+      if (pal){
+        pal.innerHTML = '';
+        colors.forEach(hex => {
+          const sw = document.createElement('div');
+          sw.className = 'sw';
+          sw.title = hex;
+          sw.style.background = hex;
+          sw.addEventListener('click', () => copyText(hex));
+          pal.appendChild(sw);
+        });
+      }
     };
-    img.onerror = () => { img.style.display='none'; empty.style.display='block'; };
+    img.onerror = () => { img.style.display='none'; empty.style.display='flex'; };
     img.src = raw;
 
-    if (openRaw){
-      openRaw.removeAttribute('disabled');
-      openRaw.onclick = () => window.open(raw, '_blank', 'noreferrer');
+    if (btnRaw){
+      btnRaw.removeAttribute('disabled');
+      btnRaw.onclick = () => window.open(raw, '_blank', 'noreferrer');
+    }
+    if (btnGh){
+      btnGh.removeAttribute('disabled');
+      btnGh.onclick = () => window.open(blob, '_blank', 'noreferrer');
     }
 
     // copy buttons near inputs
@@ -588,18 +711,41 @@
     });
   }
 
-  /* ---------------------- About dialog trigger ---------------------- */
   function openAbout(){
-    // index.html already has #dlg-about; just open it
-    const dlg = $('#dlg-about');
-    if (!dlg) return;
-    // fill version/name/owner etc.
-    $('#app-version') && IPC.call('app:getVersion').then(v => $('#app-version').textContent = v || '');
-    $('#about-open-settings')?.addEventListener('click', () => Settings?.open?.());
-    // close button on titlebar
-    $('#about-close')?.addEventListener('click', () => dlg.close());
-    dlg.showModal();
-  }
+  const dlg = $('#dlg-about');
+  if (!dlg) return;
+
+  // Fill version
+  $('#app-version') && IPC.call('app:getVersion').then(v => $('#app-version').textContent = v || '');
+
+  // Fill repo meta from saved settings
+  (async () => {
+    try {
+      const s = await IPC.call('settings:get');
+      const o = s.owner || '—';
+      const r = s.repo || '—';
+      const b = s.branch || '—';
+      const root = s.rootDir || '—';
+
+      const $set = (id, text, href) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (href) { el.href = href; el.textContent = text; }
+        else el.textContent = text;
+      };
+
+      $set('about-owner', o, o !== '—' ? `https://github.com/${o}` : null);
+      $set('about-repo', r, (o !== '—' && r !== '—') ? `https://github.com/${o}/${r}` : null);
+      document.getElementById('about-branch').textContent = b;
+      document.getElementById('about-root').textContent = root;
+    } catch {}
+  })();
+
+  $('#about-open-settings')?.addEventListener('click', () => Settings?.open?.());
+  $('#about-close')?.addEventListener('click', () => dlg.close());
+  dlg.showModal();
+}
+
 
   /* ---------------------- View toggle ---------------------- */
   function wireViewToggle(){
@@ -634,7 +780,6 @@
       if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'i') { e.preventDefault(); IPC.call('devtools:toggle'); }
     });
 
-    // menu events from main
     IPC.on?.('menu:open-settings', () => Settings?.open?.());
     IPC.on?.('menu:open-uploader', () => IPC.call('window:open-upload'));
     IPC.on?.('menu:open-about', openAbout);
@@ -645,7 +790,8 @@
   async function rebuildEverything(){
     await rebuildTree();
     await rebuildFiles();
-    ensureMetaSection(); // make sure meta block exists once
+    ensurePreviewHead();
+    ensurePreviewScaffold();
   }
 
   async function init(){
@@ -659,7 +805,6 @@
     try { await Settings?.prefill?.(); } catch {}
     await rebuildEverything();
 
-    // copy buttons in preview (links rows)
     $$('[data-copy]').forEach(btn => {
       const sel = btn.getAttribute('data-copy');
       btn.addEventListener('click', () => {
@@ -669,6 +814,5 @@
     });
   }
 
-  // kick off
   init();
 })();
